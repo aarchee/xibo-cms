@@ -6,7 +6,11 @@ settings.php
 .idea/
 cache/
 web/swagger-ui/
-custom
+custom/*
+# DisplaFruit: el código personalizado SÍ se versiona (el resto de custom/ se ignora)
+!custom/README.md
+!custom/DisplaFruit/
+!custom/settings-custom.php
 .DS_Store
 web/theme/custom
 node_modules

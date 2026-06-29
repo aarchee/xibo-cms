@@ -83,6 +83,14 @@ class User extends Base
      */
     public function home(Request $request, Response $response): Response|ResponseInterface
     {
+        // DisplaFruit: los operadores de pantallas van a su panel simplificado.
+        // Se excluye a los Super Admin (featureEnabled() siempre devuelve true para ellos).
+        if (!$this->getUser()->isSuperAdmin()
+            && $this->getUser()->featureEnabled('displafruit.operator')
+        ) {
+            return $response->withRedirect($this->getConfig()->rootUri() . 'displafruit/dashboard');
+        }
+
         // Should we show this user the welcome page?
         if ($this->getUser()->newUserWizard == 0) {
             return $response->withRedirect('/prototype/welcome');

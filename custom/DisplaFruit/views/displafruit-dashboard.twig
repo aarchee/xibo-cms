@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="token" content="{{ csrfToken }}"/>
+    <title>{{ theme.getThemeConfig("theme_title") }} — Panel</title>
+    <link rel="shortcut icon" href="{{ theme.rootUri() }}brand/favicon.ico"/>
+    <link href="{{ theme.rootUri() }}brand/theme.css" rel="stylesheet" media="screen">
+    <style>
+        :root {
+            --df-primary: #F47920;
+            --df-primary-dark: #D9650F;
+            --df-secondary: #3D2B1F;
+            --df-bg: #F5F5F5;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background-color: var(--df-bg);
+            color: var(--df-secondary);
+        }
+        header.df-topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 0.75rem 1.25rem;
+            background: var(--df-secondary);
+            color: #fff;
+            flex-wrap: wrap;
+        }
+        header.df-topbar .df-brand { display: flex; align-items: center; gap: 0.75rem; }
+        header.df-topbar img { height: 38px; }
+        header.df-topbar h1 { font-size: 1.25rem; margin: 0; }
+        nav.df-nav { display: flex; gap: 0.5rem; }
+        nav.df-nav a {
+            display: inline-flex; flex-direction: column; align-items: center;
+            justify-content: center; min-width: 84px; padding: 0.4rem 0.6rem;
+            color: #fff; text-decoration: none; border-radius: 8px;
+            font-size: 0.8rem; transition: background 0.15s;
+        }
+        nav.df-nav a:hover { background: rgba(255,255,255,0.12); }
+        nav.df-nav a .df-ico { font-size: 1.5rem; line-height: 1; }
+        main { padding: 1.25rem; max-width: 1200px; margin: 0 auto; }
+        .df-summary { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+        .df-summary .df-stat {
+            flex: 1 1 140px; background: #fff; border-radius: 12px; padding: 1rem 1.25rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+        .df-summary .df-stat .df-num { font-size: 2rem; font-weight: 700; }
+        .df-summary .df-stat.online .df-num { color: #2e7d32; }
+        .df-summary .df-stat.offline .df-num { color: #c62828; }
+        .df-publish-btn {
+            display: block; width: 100%; border: none; cursor: pointer;
+            background: var(--df-primary); color: #fff; font-size: 1.4rem; font-weight: 700;
+            padding: 1.1rem; border-radius: 14px; margin-bottom: 1.5rem;
+            box-shadow: 0 2px 6px rgba(244,121,32,0.4); transition: background 0.15s;
+        }
+        .df-publish-btn:hover { background: var(--df-primary-dark); }
+        .df-grid {
+            display: grid; gap: 1rem;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        }
+        .df-card {
+            background: #fff; border-radius: 12px; padding: 1rem 1.1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08); border-left: 6px solid #c62828;
+        }
+        .df-card.online { border-left-color: #2e7d32; }
+        .df-card .df-card-head { display: flex; align-items: center; gap: 0.5rem; }
+        .df-dot { width: 12px; height: 12px; border-radius: 50%; background: #c62828; flex: 0 0 auto; }
+        .df-card.online .df-dot { background: #2e7d32; }
+        .df-card .df-name { font-weight: 700; word-break: break-word; }
+        .df-card .df-meta { font-size: 0.8rem; color: #777; margin-top: 0.5rem; }
+        .df-empty { background: #fff; border-radius: 12px; padding: 2rem; text-align: center; color: #777; }
+
+        /* Modal */
+        .df-modal-backdrop {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+            align-items: center; justify-content: center; padding: 1rem; z-index: 1000;
+        }
+        .df-modal-backdrop.open { display: flex; }
+        .df-modal {
+            background: #fff; border-radius: 14px; padding: 1.5rem; width: 100%; max-width: 460px;
+        }
+        .df-modal h2 { margin-top: 0; color: var(--df-secondary); }
+        .df-modal label { display: block; font-weight: 700; margin: 0.85rem 0 0.3rem; }
+        .df-modal input[type=text], .df-modal input[type=number], .df-modal input[type=file] {
+            width: 100%; padding: 0.6rem; border: 1px solid #ccc; border-radius: 8px; font-size: 1rem;
+        }
+        .df-modal-actions { display: flex; gap: 0.75rem; margin-top: 1.25rem; }
+        .df-btn {
+            flex: 1; border: none; cursor: pointer; padding: 0.85rem; border-radius: 10px;
+            font-size: 1.05rem; font-weight: 700;
+        }
+        .df-btn-primary { background: var(--df-primary); color: #fff; }
+        .df-btn-primary:hover { background: var(--df-primary-dark); }
+        .df-btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+        .df-btn-secondary { background: #eee; color: var(--df-secondary); }
+        .df-result { margin-top: 1rem; padding: 0.75rem; border-radius: 8px; display: none; }
+        .df-result.ok { display: block; background: #e8f5e9; color: #2e7d32; }
+        .df-result.err { display: block; background: #ffebee; color: #c62828; }
+        footer.df-footer { text-align: center; color: #999; font-size: 0.8rem; padding: 1.5rem; }
+    </style>
+</head>
+<body>
+    <header class="df-topbar">
+        <div class="df-brand">
+            <img src="{{ theme.rootUri() }}brand/logo.svg" alt="DisplaFruit">
+            <h1>{{ theme.getThemeConfig("theme_title") }}</h1>
+        </div>
+        <nav class="df-nav">
+            <a href="{{ theme.rootUri() }}prototype/displays/displays"><span class="df-ico">🖥️</span>Pantallas</a>
+            <a href="{{ theme.rootUri() }}prototype/library/media"><span class="df-ico">🗂️</span>Contenido</a>
+            <a href="{{ url_for('logout') }}"><span class="df-ico">⏏️</span>Cerrar sesión</a>
+        </nav>
+    </header>
+
+    <main>
+        <div class="df-summary">
+            <div class="df-stat online"><div class="df-num">{{ onlineCount }}</div><div>Pantallas online</div></div>
+            <div class="df-stat offline"><div class="df-num">{{ offlineCount }}</div><div>Pantallas offline</div></div>
+            <div class="df-stat"><div class="df-num">{{ displayCount }}</div><div>Pantallas totales</div></div>
+        </div>
+
+        <button type="button" class="df-publish-btn" id="df-open-publish">
+            📢 Publicar en todas las pantallas
+        </button>
+
+        {% if displays is empty %}
+            <div class="df-empty">
+                Aún no hay pantallas registradas. Da de alta las Smart TVs desde la app
+                <strong>Xibo for Android</strong> y autorízalas en el CMS.
+            </div>
+        {% else %}
+            <div class="df-grid">
+                {% for d in displays %}
+                    <div class="df-card {{ d.loggedIn == 1 ? 'online' : 'offline' }}">
+                        <div class="df-card-head">
+                            <span class="df-dot"></span>
+                            <span class="df-name">{{ d.name }}</span>
+                        </div>
+                        <div class="df-meta">
+                            {{ d.loggedIn == 1 ? 'Online' : 'Offline' }}
+                            {% if d.lastAccessed %}
+                                · Últ. acceso: {{ d.lastAccessed | date('d/m/Y H:i') }}
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </main>
+
+    <footer class="df-footer">
+        © {{ 'now' | date('Y') }} DisplaFruit S.A. — Sistema de Cartelería Digital
+    </footer>
+
+    <!-- Modal de publicación -->
+    <div class="df-modal-backdrop" id="df-modal">
+        <div class="df-modal">
+            <h2>Publicar contenido</h2>
+            <p>El contenido se mostrará en <strong>todas las pantallas</strong>.</p>
+            <form id="df-publish-form">
+                <label for="df-file">Archivo (imagen, vídeo o PDF)</label>
+                <input type="file" id="df-file" name="file" accept="image/*,video/*,application/pdf" required>
+
+                <label for="df-name">Nombre (opcional)</label>
+                <input type="text" id="df-name" name="name" placeholder="Ej. Oferta plátano IGP">
+
+                <label for="df-duration">Duración en pantalla (segundos)</label>
+                <input type="number" id="df-duration" name="duration" value="30" min="1" max="86400">
+
+                <div class="df-result" id="df-result"></div>
+
+                <div class="df-modal-actions">
+                    <button type="button" class="df-btn df-btn-secondary" id="df-cancel">Cancelar</button>
+                    <button type="submit" class="df-btn df-btn-primary" id="df-submit">Publicar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script nonce="{{ cspNonce }}">
+        (function () {
+            var publishUrl = "{{ url_for('displafruit.publishAll.web') }}";
+            var csrfKey = "{{ csrfKey }}";
+            var csrfToken = "{{ csrfToken }}";
+
+            var modal = document.getElementById('df-modal');
+            var openBtn = document.getElementById('df-open-publish');
+            var cancelBtn = document.getElementById('df-cancel');
+            var form = document.getElementById('df-publish-form');
+            var submitBtn = document.getElementById('df-submit');
+            var result = document.getElementById('df-result');
+
+            function showResult(cls, msg) {
+                result.className = 'df-result ' + cls;
+                result.textContent = msg;
+            }
+            function openModal() { modal.classList.add('open'); }
+            function closeModal() { modal.classList.remove('open'); result.className = 'df-result'; }
+
+            openBtn.addEventListener('click', openModal);
+            cancelBtn.addEventListener('click', closeModal);
+            modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
+
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+                var fileInput = document.getElementById('df-file');
+                if (!fileInput.files.length) { showResult('err', 'Selecciona un archivo.'); return; }
+
+                var data = new FormData();
+                data.append('file', fileInput.files[0]);
+                data.append('name', document.getElementById('df-name').value);
+                data.append('duration', document.getElementById('df-duration').value);
+                data.append(csrfKey, csrfToken);
+
+                submitBtn.disabled = true;
+                showResult('ok', 'Publicando…');
+
+                fetch(publishUrl, {
+                    method: 'POST',
+                    body: data,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-XSRF-TOKEN': csrfToken },
+                    credentials: 'same-origin'
+                })
+                .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+                .then(function (res) {
+                    if (res.ok && res.body.success) {
+                        showResult('ok', '✅ Publicado en ' + res.body.screens_updated + ' pantalla(s) online. Recarga para ver el estado.');
+                        setTimeout(function () { window.location.reload(); }, 2500);
+                    } else {
+                        showResult('err', '❌ ' + (res.body.message || 'No se pudo publicar.'));
+                        submitBtn.disabled = false;
+                    }
+                })
+                .catch(function (err) {
+                    showResult('err', '❌ Error de red: ' + err.message);
+                    submitBtn.disabled = false;
+                });
+            });
+        })();
+    </script>
+</body>
+</html>
