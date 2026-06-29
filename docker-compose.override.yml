@@ -1,0 +1,29 @@
+# DisplaFruit — override de Docker Compose para DESARROLLO local en Windows (Docker Desktop).
+#
+# Docker Compose v2 fusiona automáticamente este fichero con docker-compose.yml al
+# ejecutar `docker compose up` (no hace falta pasarlo con -f).
+#
+# Qué cambia respecto a docker-compose.yml:
+#   1) Usa un volumen gestionado por Docker para los datos de MySQL en lugar del
+#      bind-mount ./containers/db. En Windows el bind-mount sobre el directorio de
+#      datos de MySQL provoca problemas de bloqueo de ficheros; el volumen nombrado
+#      lo evita. (Compose fusiona por ruta destino, sustituyendo el bind-mount base.)
+#   2) Expone APP_SERVER_IP al contenedor web como variable documentada. En desarrollo
+#      vale "localhost"; en producción exporta APP_SERVER_IP antes de levantar
+#      los contenedores (o crea un fichero .env a partir de .env.displafruit.example).
+#
+# Si prefieres conservar el bind-mount ./containers/db, elimina este fichero.
+
+services:
+  db:
+    volumes:
+      - displafruit_db:/var/lib/mysql
+
+  web:
+    environment:
+      CMS_DEV_MODE: "true"
+      MYSQL_DATABASE: "cms"
+      APP_SERVER_IP: "${APP_SERVER_IP:-localhost}"
+
+volumes:
+  displafruit_db:
