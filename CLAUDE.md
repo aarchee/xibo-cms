@@ -493,3 +493,53 @@ Docker Compose development environment includes:
 - **Developer Docs**: https://xibosignage.com/docs/developer/extend
 - **Community Forum**: https://community.xibo.org.uk/c/dev
 - **Contributing**: See CONTRIBUTING.md in parent repository
+
+---
+
+## 🍌 Estado de trabajo — DisplaFruit (handoff)
+
+> Sección de continuidad de sesión para el fork DisplaFruit. Se carga automáticamente al
+> abrir el terminal: al volver, basta con pedir "continúa con la validación de DisplaFruit".
+> **Última actualización: 2026-06-29.** Rama: `displafruit/main`.
+
+### Hecho y commiteado
+- **Personalización inicial** (4 entregables): entorno+docs, branding, rol "Operador Pantallas"
+  (migración Phinx), panel del operador + endpoint `publish-all`. Commits `bfb498d`…`bf8d1d5`.
+- **Correcciones tras revisión de código** (commit `3f78685`): revisión adversarial del código
+  custom contra el core de Xibo (15 agentes). 5 hallazgos confirmados, ninguno bloqueante, los
+  5 arreglados en `custom/DisplaFruit/` + la migración:
+  1. **[HIGH]** `PublishController`: saneo del nombre de fichero (path traversal) + cuotas
+     (global y por usuario, se inyecta `MediaService`).
+  2. **[MED]** `PublishController`: `save(['isMediaReassigned' => true])` (republicar mismo
+     nombre ya no da 500).
+  3. **[MED]** Migración `down()`: desvincula `lkusergroup`/`lknotificationgroup`/`permission`
+     antes del DELETE (evita error de FK en rollback).
+  4. **[LOW]** `PublishController`: `disableUserCheck => 1` en el conteo de `screens_updated`.
+  5. **[INFO]** Migración: eliminado `schedule.now` (permiso muerto).
+- Detalle completo en `CHANGELOG_DISPLAFRUIT.md`; arranque/uso en `README_DISPLAFRUIT.md`.
+
+### Bloqueo del entorno (en curso)
+- Validación end-to-end pendiente porque **Docker Desktop estaba instalado pero su motor
+  Linux no arrancaba: faltaba WSL2** (`wsl --status` → "no instalado"; en el host no hay
+  PHP/Composer, solo Node). **El usuario instaló WSL2 el 2026-06-29 y va a reiniciar.**
+- **Al volver tras el reinicio:** comprobar `docker version` (debe mostrar `Server`). Si sigue
+  caído, plan B: backend **Hyper-V** en Docker Desktop (Windows 11 Pro).
+
+### Siguiente paso — validación end-to-end (ejecutar cuando el motor Docker responda)
+```powershell
+docker version                                   # 1. confirmar Server arriba
+docker compose up --build -d                     # 2. levantar entorno (CMS en http://localhost)
+docker compose logs -f web                        #    esperar "Starting webserver"
+# 3. lint PHP del código custom
+docker compose exec -T web php -l custom/DisplaFruit/Controller/PublishController.php
+docker compose exec -T web php -l custom/DisplaFruit/Controller/DashboardController.php
+docker compose exec -T web php -l custom/DisplaFruit/Middleware/DisplaFruitMiddleware.php
+docker compose exec -T web composer phpcs         # 4. estilo (ruleset xibo)
+docker compose exec -T web php vendor/bin/phinx migrate -c phinx.php   # 5. migración del rol
+docker compose exec -T web php vendor/bin/phinx status  -c phinx.php
+# 6. funcional: login con marca → grupo "Operador Pantallas" existe → panel /displafruit/dashboard
+#    → POST /api/displafruit/publish-all (multipart: file, duration, name) debe dar success:true
+```
+- Login admin: `xibo_admin` / `password`. Recordatorio: para que el operador vea/publique en
+  pantallas hay que **compartir las pantallas con el grupo "Operador Pantallas"** (o token OAuth
+  de un admin para Power Automate). Logo oficial aún por sustituir en `docker/brand/`.
