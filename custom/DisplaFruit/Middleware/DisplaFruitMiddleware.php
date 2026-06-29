@@ -53,7 +53,8 @@ class DisplaFruitMiddleware implements MiddlewareInterface
                 $c->get('displayGroupFactory'),
                 $c->get('displayFactory'),
                 $c->get('campaignFactory'),
-                $c->get('folderFactory')
+                $c->get('folderFactory'),
+                $c->get('mediaService')
             );
             $controller->useBaseDependenciesService($c->get('ControllerBaseDependenciesService'));
             return $controller;

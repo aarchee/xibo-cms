@@ -38,6 +38,7 @@ use Xibo\Factory\MediaFactory;
 use Xibo\Factory\ModuleFactory;
 use Xibo\Factory\ScheduleFactory;
 use Xibo\Service\MediaService;
+use Xibo\Support\Exception\LibraryFullException;
 
 class PublishController extends Base
 {
@@ -53,7 +54,8 @@ class PublishController extends Base
         private readonly DisplayGroupFactory $displayGroupFactory,
         private readonly DisplayFactory $displayFactory,
         private readonly CampaignFactory $campaignFactory,
-        private readonly FolderFactory $folderFactory
+        private readonly FolderFactory $folderFactory,
+        private readonly MediaService $mediaService
     ) {
     }
 
@@ -90,11 +92,28 @@ class PublishController extends Base
             }
             $name = $params->getString('name');
 
+            // --- 1b. Comprobar cuota de biblioteca (igual que el flujo nativo de subida) ---
+            // Cuota global del CMS.
+            $libraryLimit = ((int) $this->getConfig()->getSetting('LIBRARY_SIZE_LIMIT_KB')) * 1024;
+            if ($libraryLimit > 0 && $this->mediaService->setUser($user)->libraryUsage() > $libraryLimit) {
+                throw new LibraryFullException(sprintf(
+                    __('La biblioteca está llena. Límite: %s K'),
+                    $this->getConfig()->getSetting('LIBRARY_SIZE_LIMIT_KB')
+                ));
+            }
+            // Cuota por usuario (lanza LibraryFullException si se supera).
+            $user->isQuotaFullByUser(true);
+
             $libraryFolder = $this->getConfig()->getSetting('LIBRARY_LOCATION');
             MediaService::ensureLibraryExists($libraryFolder);
 
             // --- 2. Persistir el archivo en LIBRARY_LOCATION/temp/{fileName} ---
-            $fileName = $uploaded->getClientFilename();
+            // Sanear el nombre del cliente: quitar info de ruta y caracteres peligrosos
+            // (mismo saneado que el core, BlueImpUploadHandler) para evitar path traversal.
+            $fileName = trim(basename(stripslashes((string) $uploaded->getClientFilename())), ".\x00..\x20");
+            if ($fileName === '') {
+                $fileName = 'upload';
+            }
             $tempPath = rtrim($libraryFolder, '/') . '/temp/' . $fileName;
             $uploaded->moveTo($tempPath);
 
@@ -112,7 +131,9 @@ class PublishController extends Base
             $folder = $this->folderFactory->getById($folderId, 0);
             $media->folderId = $folderId;
             $media->permissionsFolderId = $folder->getPermissionFolderIdOrThis();
-            $media->save(); // mueve temp/{fileName} -> {mediaId}.{ext}
+            // isMediaReassigned: si el usuario ya tiene un media con ese nombre, el core
+            // lo renombra automáticamente en vez de lanzar DuplicateEntityException (500).
+            $media->save(['isMediaReassigned' => true]); // mueve temp/{fileName} -> {mediaId}.{ext}
 
             // --- 4. Layout a pantalla completa (ya publicado) a partir del Media ---
             $fsLayout = $this->layoutFactory->createFullScreenLayout(
@@ -152,9 +173,10 @@ class PublishController extends Base
 
             // --- 7. Contar pantallas activas (online) en el grupo ---
             $screensUpdated = count($this->displayFactory->query(null, [
-                'displayGroupId' => $displayGroup->displayGroupId,
-                'loggedIn'       => 1,
-                'authorised'     => 1,
+                'displayGroupId'  => $displayGroup->displayGroupId,
+                'loggedIn'        => 1,
+                'authorised'      => 1,
+                'disableUserCheck' => 1, // contar TODAS las pantallas del grupo, no solo las visibles por ACL del operador
             ]));
 
             $this->getLog()->audit('Schedule', $schedule->eventId ?? 0, 'DisplaFruit: publish-all', [

@@ -9,6 +9,37 @@ Rama: `displafruit/main`.
 
 ---
 
+## [2026-06-29] Correcciones tras revisión de código
+
+Revisión adversarial del código custom contra el core de Xibo (5 hallazgos confirmados,
+ninguno bloqueante). Todos los arreglos viven en `custom/DisplaFruit/` y en la migración:
+
+- **[HIGH] `PublishController` — path traversal + cuota.** El nombre de fichero del cliente
+  se usaba sin sanear para construir la ruta temporal y `Media->fileName`; un nombre con
+  `../` podía escribir fuera de `LIBRARY_LOCATION/temp` (la escritura ocurría antes de
+  validar la extensión). Ahora se sanea con `basename(stripslashes(...))` + `trim` (mismo
+  saneado que `BlueImpUploadHandler` del core) y se comprueban las cuotas global
+  (`LIBRARY_SIZE_LIMIT_KB` vs `MediaService::libraryUsage()`) y por usuario
+  (`User::isQuotaFullByUser`). Se inyecta `MediaService` en el controlador (y en el middleware).
+- **[MED] `PublishController` — republicar mismo nombre daba 500.** `Media->save()` lanzaba
+  `DuplicateEntityException` si el operador reutilizaba un nombre de archivo (caso habitual en
+  publicaciones rápidas / Power Automate). Ahora se guarda con `['isMediaReassigned' => true]`
+  para que el core renombre automáticamente (patrón de `MediaListener`).
+- **[MED] Migración `down()` — error de FK.** El `DELETE` directo sobre `group` fallaba por
+  integridad referencial si ya había usuarios/notificaciones asignados (FK RESTRICT). Ahora
+  `down()` resuelve el `groupId` y desvincula `lkusergroup`, `lknotificationgroup` y
+  `permission` antes de borrar el grupo.
+- **[LOW] `PublishController` — `screens_updated` contaba 0 para el operador.** El recuento
+  aplicaba la ACL del usuario; ahora pasa `disableUserCheck => 1` para contar todas las
+  pantallas del grupo destino (la programación ya cubría todo el grupo; solo era la respuesta).
+- **[INFO] Migración — `schedule.now` permiso muerto.** No existe como feature comprobable en
+  4.4 (la capacidad "programar ahora" la gobierna `schedule.add`, ya incluida). Eliminado.
+
+> Pendiente de validar en contenedor (Docker requiere WSL2, no instalado en el equipo actual):
+> `php -l` de los ficheros custom, `composer phpcs`, migración y prueba end-to-end de `publish-all`.
+
+---
+
 ## [2026-06-29] Personalización inicial DisplaFruit
 
 ### ✅ Ficheros NUEVOS (no tocan core)

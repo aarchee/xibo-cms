@@ -31,8 +31,9 @@ class DisplafruitOperatorRoleMigration extends AbstractMigration
             'displays.view',
             // Grupos de display: necesarios para programar y para el grupo "DisplaFruit - Todas".
             'displaygroup.view', 'displaygroup.modify',
-            // Programación: ver, añadir, agenda y "programar ahora".
-            'schedule.view', 'schedule.add', 'schedule.agenda', 'schedule.now',
+            // Programación: ver, añadir y agenda. ("Programar ahora" lo gobierna schedule.add;
+            // schedule.now no existe como feature comprobable en 4.4, así que se omite.)
+            'schedule.view', 'schedule.add', 'schedule.agenda',
             // Campañas: las publicaciones se apoyan en campañas.
             'campaign.view', 'campaign.add', 'campaign.modify',
             // Panel de estado (homepage por defecto del grupo).
@@ -71,8 +72,24 @@ class DisplafruitOperatorRoleMigration extends AbstractMigration
 
     public function down(): void
     {
-        $this->execute(
-            "DELETE FROM `group` WHERE `group` = '" . $this->groupName . "' AND IsUserSpecific = 0"
+        $existing = $this->fetchRow(
+            "SELECT groupId FROM `group` WHERE `group` = '" . $this->groupName . "' AND IsUserSpecific = 0"
         );
+
+        if (empty($existing)) {
+            return;
+        }
+
+        $groupId = (int) $existing['groupId'];
+
+        // Desvincular las filas hijas ANTES del DELETE: las FK de lkusergroup y
+        // lknotificationgroup hacia `group` son RESTRICT (sin ON DELETE CASCADE), por lo
+        // que un rollback con usuarios/notificaciones ya asignados al grupo fallaría por
+        // integridad referencial. También limpiamos permisos del grupo (como hace el core).
+        $this->execute("DELETE FROM `lkusergroup` WHERE groupId = " . $groupId);
+        $this->execute("DELETE FROM `lknotificationgroup` WHERE groupId = " . $groupId);
+        $this->execute("DELETE FROM `permission` WHERE groupId = " . $groupId);
+
+        $this->execute("DELETE FROM `group` WHERE groupId = " . $groupId);
     }
 }
