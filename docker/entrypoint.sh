@@ -121,6 +121,11 @@ if [ ! -f "/var/www/cms/library/brand/config.json" ]; then
     fi
   done
 fi
+# DisplaFruit: aprovisionar config.json de marca (título de navegador / nombre de app).
+# Debe copiarse DESPUÉS del bloque de layouts (que se ejecuta solo si config.json no existe).
+if [ ! -f "/var/www/cms/library/brand/config.json" ] && [ -f "/brand/config.json" ]; then
+  cp "/brand/config.json" "/var/www/cms/library/brand/config.json"
+fi
 chown -R www-data.www-data /var/www/cms/library/brand
 
 # Check if there's a database file to import

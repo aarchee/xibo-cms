@@ -63,7 +63,7 @@
             {% for priorRoute in flash('priorRoute') %}
                 <input name="priorRoute" type="hidden" value="{{ priorRoute }}" />
             {% endfor %}
-            <p><img alt="Logo" class="login-logo" src="{{ theme.rootUri() }}brand/xibologo.png"></p>
+            <p><img alt="Logo" class="login-logo" src="{{ theme.rootUri() }}brand/logo.svg"></p>
 
             <p>{% trans  %}Connect with the Central Authentication Server{% endtrans %}</p>
 
@@ -79,7 +79,10 @@
                 <input name="priorRoute" type="hidden" value="{{ priorRoute }}" />
             {% endfor %}
             <input type="hidden" name="{{ csrfKey }}" value="{{ csrfToken }}" />
-            <p><a href="{{ theme.getThemeConfig("theme_url") }}"><img class="login-logo" src="{{ theme.rootUri() }}brand/xibologo.png"></a></p>
+            <p><a href="{{ theme.getThemeConfig("theme_url") }}"><img class="login-logo" src="{{ theme.rootUri() }}brand/logo.svg"></a></p>
+
+            <h1 class="h4 mb-1">{{ theme.getThemeConfig("theme_title") }}</h1>
+            <p class="text-muted mb-3">Gestión de pantallas</p>
 
             <p>{% trans "Please provide your credentials" %}</p>
 
@@ -99,7 +102,7 @@
         {% if passwordReminderEnabled %}
         <form id="reminder-form" class="form-signin text-center d-none" action="{{ url_for("login.forgotten") }}" method="post">
             <input type="hidden" name="{{ csrfKey }}" value="{{ csrfToken }}" />
-            <p><a href="{{ theme.getThemeConfig("theme_url") }}"><img class="login-logo" src="{{ theme.rootUri() }}brand/xibologo.png"></a></p>
+            <p><a href="{{ theme.getThemeConfig("theme_url") }}"><img class="login-logo" src="{{ theme.rootUri() }}brand/logo.svg"></a></p>
 
             <p>{% trans "Please provide your user name" %}</p>
             <input id="username" class="form-control input-block-level" name="username" type="text" placeholder="{% trans "User" %}">
@@ -118,6 +121,7 @@
             | <a id="source-link" href="https://github.com/xibosignage/xibo/">{% trans "Source" %}</a>
             | <a id="about-link" class="XiboFormButton" href="{{ url_for("about") }}" title="{% trans "About" %}">{% trans "About" %}</a>
         </p>
+        <p class="text-center text-muted small">&copy; {{ 'now' | date('Y') }} DisplaFruit S.A. &mdash; Sistema de Carteler&iacute;a Digital</p>
     </div> <!-- /container -->
     <!-- Import JS bundle from dist -->
     <script src="{{ theme.rootUri() }}dist/vendor.bundle.min.js?v={{ version }}&rev={{revision}}" nonce="{{ cspNonce }}"></script>

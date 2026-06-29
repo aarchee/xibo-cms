@@ -1,2 +1,111 @@
-/* Brand theme CSS — override --brand-primary and --brand-accent to customise the colour scheme */
-:root {}
+/*
+ * DisplaFruit Signage — tema de marca.
+ *
+ * Sobrescribe las variables CSS y los estilos del CMS de Xibo con los colores
+ * corporativos de DisplaFruit. Este fichero se sirve desde LIBRARY_LOCATION/brand/theme.css
+ * (alias Apache /brand) y se carga DESPUÉS del CSS base de Xibo (ver views/base.twig y
+ * views/login.twig), por lo que estas reglas tienen prioridad.
+ *
+ * Mantenible: no se modifican ficheros core de Xibo; el branding vive aquí y en
+ * library/brand/config.json. Origen versionado: docker/brand/ (se copia a library/brand/
+ * en el primer arranque, ver docker/entrypoint.sh).
+ *
+ * Paleta corporativa:
+ *   Naranja principal  #F47920
+ *   Marrón oscuro      #3D2B1F
+ *   Blanco             #FFFFFF
+ *   Gris claro (fondo) #F5F5F5
+ */
+:root {
+    /* Paleta DisplaFruit */
+    --df-primary: #F47920;
+    --df-primary-dark: #D9650F;
+    --df-secondary: #3D2B1F;
+    --df-bg: #F5F5F5;
+
+    /* Variables consumidas por el frontend React (frontend/public/theme/default/theme.css) */
+    --color-primary: #F47920;
+    --color-secondary: #3D2B1F;
+    --color-bg: #F5F5F5;
+
+    /* Alias usados por el bloque de marca de Xibo */
+    --brand-primary: #F47920;
+    --brand-accent: #3D2B1F;
+}
+
+/* ======================================================================
+ * UI clásica del CMS (Bootstrap 4 / xibo.css)
+ * ====================================================================== */
+
+/* Barra de navegación superior */
+.navbar.navbar-default {
+    background-color: var(--df-secondary) !important;
+    border-color: var(--df-secondary) !important;
+}
+.navbar.navbar-default .navbar-nav > li > a,
+.navbar.navbar-default .navbar-brand,
+.navbar.navbar-default .navbar-text {
+    color: #ffffff !important;
+}
+.navbar.navbar-default .navbar-nav > li > a:hover {
+    color: var(--df-primary) !important;
+}
+
+/* Botones primarios */
+.btn-primary {
+    background-color: var(--df-primary) !important;
+    border-color: var(--df-primary) !important;
+    color: #ffffff !important;
+}
+.btn-primary:hover,
+.btn-primary:focus,
+.btn-primary:active,
+.btn-primary.active,
+.btn-primary:not(:disabled):not(.disabled):active {
+    background-color: var(--df-primary-dark) !important;
+    border-color: var(--df-primary-dark) !important;
+}
+.btn-outline-primary {
+    color: var(--df-primary) !important;
+    border-color: var(--df-primary) !important;
+}
+.btn-outline-primary:hover {
+    background-color: var(--df-primary) !important;
+    color: #ffffff !important;
+}
+
+/* Enlaces */
+a {
+    color: var(--df-primary);
+}
+a:hover {
+    color: var(--df-primary-dark);
+}
+
+/* Utilidades de color primario */
+.bg-primary { background-color: var(--df-primary) !important; }
+.text-primary { color: var(--df-primary) !important; }
+.badge-primary { background-color: var(--df-primary) !important; }
+.border-primary { border-color: var(--df-primary) !important; }
+
+/* Menú lateral: elemento activo */
+.nav-sidebar .active > a,
+.navbar-collapse-side .nav > li.active > a,
+.navbar-collapse-side .nav > li > a.active {
+    border-left: 4px solid var(--df-primary);
+    color: var(--df-primary);
+}
+
+/* Paginación */
+.page-item.active .page-link {
+    background-color: var(--df-primary);
+    border-color: var(--df-primary);
+}
+.page-link {
+    color: var(--df-primary);
+}
+
+/* Fondo general de la aplicación */
+body {
+    background-color: var(--df-bg);
+}
