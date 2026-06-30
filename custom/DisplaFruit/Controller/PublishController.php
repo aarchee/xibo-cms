@@ -135,41 +135,66 @@ class PublishController extends Base
             // lo renombra automáticamente en vez de lanzar DuplicateEntityException (500).
             $media->save(['isMediaReassigned' => true]); // mueve temp/{fileName} -> {mediaId}.{ext}
 
-            // --- 4. Layout a pantalla completa (ya publicado) a partir del Media ---
-            $fsLayout = $this->layoutFactory->createFullScreenLayout(
-                'media',
-                $media->mediaId,
-                0,   // resolutionId 0 => ajuste al tamaño del media
-                '',  // backgroundColor '' => #000000
-                0    // layoutDuration 0 => duración propia del media / módulo
-            );
-            $campaignId = $this->layoutFactory->getCampaignIdFromLayoutHistory($fsLayout->layoutId);
+            // A partir de aquí el media ya está persistido (registro en BD + fichero en la
+            // biblioteca). Si falla la creación del layout o la programación posterior, hay
+            // que deshacer para no dejar media/layout/ficheros huérfanos.
+            $fsLayout = null;
+            try {
+                // --- 4. Layout a pantalla completa (ya publicado) a partir del Media ---
+                $fsLayout = $this->layoutFactory->createFullScreenLayout(
+                    'media',
+                    $media->mediaId,
+                    0,   // resolutionId 0 => ajuste al tamaño del media
+                    '',  // backgroundColor '' => #000000
+                    0    // layoutDuration 0 => duración propia del media / módulo
+                );
+                $campaignId = $this->layoutFactory->getCampaignIdFromLayoutHistory($fsLayout->layoutId);
 
-            // --- 5. Resolver el grupo de pantallas destino (todas, por defecto) ---
-            $displayGroup = $this->resolveTargetGroup($params);
+                // --- 5. Resolver el grupo de pantallas destino (todas, por defecto) ---
+                $displayGroup = $this->resolveTargetGroup($params);
 
-            // --- 6. Programar evento de media de ALTA PRIORIDAD: ahora -> ahora + duración ---
-            $customDayPart = $this->dayPartFactory->getCustomDayPart();
+                // --- 6. Programar evento de media de ALTA PRIORIDAD: ahora -> ahora + duración ---
+                $customDayPart = $this->dayPartFactory->getCustomDayPart();
 
-            $schedule = $this->scheduleFactory->createEmpty();
-            $schedule->userId = $user->userId;
-            $schedule->eventTypeId = Schedule::$MEDIA_EVENT;
-            $schedule->campaignId = $campaignId;
-            $schedule->parentCampaignId = $campaignId;
-            $schedule->dayPartId = $customDayPart->dayPartId;
-            $schedule->isPriority = 1;
-            $schedule->displayOrder = 0;
-            $schedule->syncTimezone = 0;
-            $schedule->syncEvent = 0;
-            $schedule->isGeoAware = 0;
-            $schedule->maxPlaysPerHour = 0;
-            $schedule->fromDt = Carbon::now()->format('U');
-            $schedule->toDt = Carbon::now()->addSeconds($durationSecs)->format('U');
+                $schedule = $this->scheduleFactory->createEmpty();
+                $schedule->userId = $user->userId;
+                $schedule->eventTypeId = Schedule::$MEDIA_EVENT;
+                $schedule->campaignId = $campaignId;
+                $schedule->parentCampaignId = $campaignId;
+                $schedule->dayPartId = $customDayPart->dayPartId;
+                $schedule->isPriority = 1;
+                $schedule->displayOrder = 0;
+                $schedule->syncTimezone = 0;
+                $schedule->syncEvent = 0;
+                $schedule->isGeoAware = 0;
+                $schedule->maxPlaysPerHour = 0;
+                $schedule->fromDt = Carbon::now()->format('U');
+                $schedule->toDt = Carbon::now()->addSeconds($durationSecs)->format('U');
 
-            $schedule->assignDisplayGroup($displayGroup);
-            $schedule->setDisplayNotifyService($this->displayFactory->getDisplayNotifyService());
-            $schedule->setCampaignFactory($this->campaignFactory);
-            $schedule->save();
+                $schedule->assignDisplayGroup($displayGroup);
+                $schedule->setDisplayNotifyService($this->displayFactory->getDisplayNotifyService());
+                $schedule->setCampaignFactory($this->campaignFactory);
+                $schedule->save();
+            } catch (\Throwable $inner) {
+                // Rollback best-effort: primero el layout (libera el enlace al media) y luego
+                // el media (borra registro + fichero). Los fallos de limpieza se registran pero
+                // no enmascaran el error original, que se relanza al catch exterior.
+                if ($fsLayout !== null) {
+                    try {
+                        $fsLayout->delete();
+                    } catch (\Throwable $cleanup) {
+                        $this->getLog()->error('DisplaFruit publish-all: fallo al limpiar layout huérfano: '
+                            . $cleanup->getMessage());
+                    }
+                }
+                try {
+                    $media->delete();
+                } catch (\Throwable $cleanup) {
+                    $this->getLog()->error('DisplaFruit publish-all: fallo al limpiar media huérfano: '
+                        . $cleanup->getMessage());
+                }
+                throw $inner;
+            }
 
             // --- 7. Contar pantallas activas (online) en el grupo ---
             $screensUpdated = count($this->displayFactory->query(null, [
@@ -209,7 +234,11 @@ class PublishController extends Base
     {
         $displayGroupId = $params->getInt('displayGroupId');
         if (!empty($displayGroupId)) {
-            return $this->displayGroupFactory->getById($displayGroupId);
+            // disableUserCheck=false: el operador solo puede publicar en grupos sobre los que
+            // tiene permiso (ACL). Sin esto, un displayGroupId arbitrario combinado con
+            // isPriority=1 permitiría empujar contenido a grupos ajenos. Lanza NotFoundException
+            // si el usuario no tiene acceso al grupo solicitado.
+            return $this->displayGroupFactory->getById($displayGroupId, false);
         }
 
         // Buscar el grupo por nombre entre los grupos no específicos de display.

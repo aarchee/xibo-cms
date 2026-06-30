@@ -39,7 +39,11 @@ Puertos del entorno de desarrollo (`docker-compose.yml`):
 - **Git**.
 - Navegador moderno.
 
-No necesitas PHP, Composer ni Node instalados en el PC: todo corre en Docker.
+No necesitas instalar PHP, Composer ni Node en el PC. **Pero ojo:** el contenedor de
+desarrollo (`Dockerfile.dev`) **no incluye Composer ni Node** y monta el código del host tal
+cual, así que la **primera vez** hay que generar las dependencias (`vendor/` y `web/dist`) y la
+carpeta `cache/` con contenedores auxiliares (paso 2.4 más abajo). Es un único arranque; el día
+a día es solo `docker compose up -d`.
 
 ---
 
@@ -56,6 +60,17 @@ copy .env.displafruit.example .env
 
 # 3. Levantar los contenedores (la primera vez compila la imagen de desarrollo)
 docker compose up --build -d
+
+# 4. PREPARAR DEPENDENCIAS — SOLO LA PRIMERA VEZ (el contenedor dev no trae Composer/Node)
+#    a) Librerías PHP -> genera vendor/ (sin esto, no hay migraciones ni arranque del CMS)
+docker run --rm -v "${PWD}:/app" composer:2 install --ignore-platform-reqs --no-interaction
+#    b) Recursos web -> genera web/dist (node_modules en un volumen para que sea rápido en Windows)
+docker run --rm -v "${PWD}:/app" -v xibo_node_modules:/app/node_modules -w /app node:20 `
+  sh -c "npm install --no-audit --no-fund && npm run build"
+#    c) Carpeta cache/ con permisos (si no, da "Installation Error: Cannot write... Cache Folder")
+docker compose exec -T web sh -c "mkdir -p /var/www/cms/cache /var/www/cms/library/temp; chmod -R 777 /var/www/cms/cache /var/www/cms/library; chown -R www-data:www-data /var/www/cms/cache /var/www/cms/library"
+#    d) Aplicar BD + rol de operador (reinicia: el entrypoint instala solo al ver la BD vacía)
+docker compose restart web
 ```
 
 - El fichero **`docker-compose.override.yml`** se fusiona automáticamente y, en Windows,

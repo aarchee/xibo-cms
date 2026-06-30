@@ -500,7 +500,7 @@ Docker Compose development environment includes:
 
 > Sección de continuidad de sesión para el fork DisplaFruit. Se carga automáticamente al
 > abrir el terminal: al volver, basta con pedir "continúa con la validación de DisplaFruit".
-> **Última actualización: 2026-06-30.** Rama: `displafruit/main`.
+> **Última actualización: 2026-06-30 (validación E2E completada).** Rama: `displafruit/main`.
 
 ### Hecho y commiteado
 - **Personalización inicial** (4 entregables): entorno+docs, branding, rol "Operador Pantallas"
@@ -518,74 +518,74 @@ Docker Compose development environment includes:
   5. **[INFO]** Migración: eliminado `schedule.now` (permiso muerto).
 - Detalle completo en `CHANGELOG_DISPLAFRUIT.md`; arranque/uso en `README_DISPLAFRUIT.md`.
 
-### Bloqueo del entorno — DIAGNÓSTICO FINAL (2026-06-30): falta activar VT-x en la BIOS
-- WSL2 quedó **bien instalado** tras el reinicio del 2026-06-29 (WSL 2.7.10, kernel 6.18.33.2-2).
-  Ese ya **no** es el problema. Plan B Hyper-V **descartado**: tiene el mismo requisito.
-- **Causa raíz real:** la virtualización del CPU (**Intel VT-x**) está **DESACTIVADA en la BIOS**.
-  Diagnóstico en el host (2026-06-30):
-  - `Win32_Processor.VirtualizationFirmwareEnabled : False`  ← VT-x apagado en firmware
-  - `VMMonitorModeExtensions : True` y `SecondLevelAddressTranslation : True`  ← el i3-10105 SÍ lo soporta
-  - `HyperVRequirementVirtualizationFirmwareEnabled : False`, `HyperVisorPresent : False`
-  - Docker Desktop muestra el aviso **"Virtualization support not detected"**.
-  - Síntoma colateral: servicio `com.docker.service` queda en *Stopped* y el motor no responde.
-- **Acción del usuario (en curso): reiniciar el PC y entrar a la BIOS para activar VT-x.**
-  Ruta cómoda en Win11: *Config → Sistema → Recuperación → Inicio avanzado → Reiniciar ahora →
-  Solucionar problemas → Opciones avanzadas → Configuración de firmware UEFI*. Dentro: activar
-  **"Intel Virtualization Technology" / VT-x** (suele estar en *Advanced → CPU Configuration*) y
-  si está, **VT-d**; Guardar y salir (F10).
-- **Al volver tras el reinicio:** `docker version` debe mostrar `Server`. Si VT-x quedó activado,
-  el backend **WSL2 (ya instalado, recomendado)** levanta el motor — no hace falta Hyper-V.
-  Si Docker no arranca su servicio solo: Docker Desktop → clic derecho → *Ejecutar como
-  administrador*, o en PowerShell elevada `Start-Service com.docker.service`.
+### Entorno — RESUELTO y OPERATIVO (2026-06-30)
+- **VT-x activado en BIOS** por el usuario → Docker Desktop 4.79 levanta los 6 contenedores
+  (`db`, `web`, `xmr`, `memcached`, `swagger`, `quickchart`). `docker version` muestra `Server`.
+- **Causa raíz que NO era la BIOS:** el entorno dev nunca se había bootstrapeado (Docker no había
+  arrancado nunca). `Dockerfile.dev` **no trae composer ni node** y mapea el PWD del host por
+  bind-mount (`./:/var/www/cms`), por lo que **espera que el host tenga `vendor/` y `web/dist` ya
+  poblados**. Faltaban los tres:
+  1. **`vendor/`** (Composer) → sin él, el bind-mount tapaba el de la imagen, `phinx` no existía y
+     las migraciones del arranque nunca corrieron → **BD `cms` con 0 tablas** → todo 404/500.
+  2. **`web/dist`** (webpack) → UI sin estilos/JS.
+  3. **`cache/`** (no existía en el host) → el CMS daba *"Installation Error: Cannot write files
+     into the Cache Folder"* en TODA página (incl. login y dashboard).
+- **Bootstrap aplicado (reproducible en cualquier máquina limpia):**
+  ```powershell
+  # 1. vendor/ (genera Composer en el host; el contenedor lo ve por bind-mount)
+  docker run --rm -v "${PWD}:/app" composer:2 install --ignore-platform-reqs --no-interaction
+  # 2. web/dist (node_modules en VOLUMEN docker -> rápido en Windows; solo web/dist va al host)
+  docker run --rm -v "${PWD}:/app" -v xibo_node_modules:/app/node_modules -w /app node:20 `
+    sh -c "npm install --no-audit --no-fund && npm run build"
+  # 3. cache/ + permisos (crea el dir en el host vía bind-mount y lo hace escribible por www-data)
+  docker compose exec -T web sh -c "mkdir -p /var/www/cms/cache /var/www/cms/library/temp; `
+    chmod -R 777 /var/www/cms/cache /var/www/cms/library; `
+    chown -R www-data:www-data /var/www/cms/cache /var/www/cms/library"
+  # 4. correr migraciones (reinicia web -> el entrypoint detecta BD vacía y migra solo)
+  docker compose restart web
+  ```
+  ⚠️ Notas Windows/PowerShell para validar por CLI: el workdir del contenedor `web` es `/`
+  (usa `cd /var/www/cms`); `phpcs` está en `vendor/bin/phpcs`; columnas BD en snake_case
+  (`is_priority`, no `isPriority`); la tabla `group` es palabra reservada (consúltala vía fichero
+  `.sql` por stdin o `sh -c` con comillas simples, no con backticks escapados en PowerShell).
 
-### Auditoría del código custom (2026-06-30) — "qué falta", VERIFICADO por 6 agentes
-> Revisión multiagente del estado real del código (no solo del handoff). Wf `displafruit-gap-audit`.
-- **Wiring CONFIRMADO completo:** las rutas `/displafruit/dashboard` y `POST /api/displafruit/publish-all`
-  **no darán 404** y el middleware **sí corre** en arranque Docker limpio. Cadena:
-  `composer.json:121` (PSR-4) → `docker/entrypoint.sh:83` genera `web/settings.php` desde plantilla →
-  `docker/tmp/settings.php-template:43-45` incluye `custom/settings-custom.php:16-22` (`global $middleware`) →
-  `lib/Service/ConfigService.php:217,240-241` → `lib/Middleware/State.php:337-348` →
-  `DisplaFruitMiddleware::addRoutes()`. Las 5 correcciones del commit `3f78685` están confirmadas reales.
-  - ⚠️ Precondición: si quedó un `web/settings.php` viejo (volumen/bind-mount), no tendrá el `include`
-    y todo daría 404 en silencio. En el repo no hay `settings.php` → `up --build` limpio lo regenera bien.
-- **Pendientes de código MED (no bloquean; conviene antes de producción) — SIN APLICAR aún:**
-  1. **Dashboard no restringido al operador.** `FeatureAuth` es OR; la ruta pide
-     `['displafruit.operator','displays.view']` → cualquiera con `displays.view` entra. Dejar solo
-     `['displafruit.operator']`. → `custom/DisplaFruit/Middleware/DisplaFruitMiddleware.php:70-72`.
-  2. **`displayGroupId` arbitrario sobre-permite.** `getById($id)` usa `disableUserCheck=true`; con
-     `isPriority=1` cualquiera empuja a cualquier grupo. Usar `getById($id, false)` o validar permiso.
-     → `custom/DisplaFruit/Controller/PublishController.php:212`.
-  3. **Sin rollback transaccional:** media/layout/fichero huérfanos si falla layout/schedule tras crear
-     el media. Añadir limpieza o transacción. → `PublishController.php:136-172`.
-  4. **Dashboard vacío engaña:** si no hay pantallas compartidas con el grupo, dice "no hay pantallas
-     registradas" en vez de "pide al admin que comparta pantallas". → `displafruit-dashboard.twig:131-135`.
-  - LOW (opcionales): mensaje de excepción crudo al cliente + códigos HTTP (`PublishController.php:194-200`);
-    falta `checkMaxUploadSize()` y validación de contenido (`:120-126`); temporal huérfano (`:118-136`);
-    `down()` destructivo si el grupo preexistía (migración `:64-70` vs `:89-93`).
-- **Branding — gap MAYOR de lo documentado (necesita assets oficiales del usuario):**
-  - **[HIGH]** `docker/brand/xibologo.png` **sigue siendo el logo de Xibo byte a byte**. Solo se cambió
-    `login.twig` a `logo.svg`. El resto de vistas autenticadas (cabecera tras login, About, 2FA,
-    install/upgrade) muestran aún el logo Xibo. Sustituir ese PNG (mismo nombre) las arregla todas.
-  - **[MED]** Favicon e iconos PWA siguen siendo de Xibo (`favicon.ico`, `192x192.png`, `512x512.png`,
-    `logo-icon.svg`). **[LOW]** `logo.svg` es un wordmark placeholder; falta el vectorial oficial.
-- **Decisión pendiente con el usuario:** aplicar ya las 4 correcciones MED de código (no necesitan Docker).
-  Quedó preguntado; el usuario fue a la BIOS antes de responder.
+### Correcciones MED — APLICADAS (2026-06-30), pendientes de commit
+> Las 4 pendientes de la auditoría de 6 agentes, ya aplicadas en working tree (lint+phpcs OK).
+1. **Dashboard solo operador.** `FeatureAuth(['displafruit.operator'])` (quitado `displays.view`;
+   los super-admin pasan igual por `User::featureEnabled()`). → `Middleware/DisplaFruitMiddleware.php`.
+2. **`displayGroupId` con ACL.** `getById($id, false)` → solo grupos con permiso del usuario.
+   → `Controller/PublishController.php` (`resolveTargetGroup`).
+3. **Rollback transaccional.** Pasos 4-6 envueltos en try/catch: si falla layout/schedule tras
+   crear el media, se borra layout (libera enlace) y luego media (registro+fichero). → `PublishController.php`.
+4. **Mensaje de estado vacío.** Distingue "ninguna pantalla dada de alta" vs "pídele al admin que
+   comparta pantallas con tu grupo «Operador Pantallas»". → `views/displafruit-dashboard.twig`.
+- **LOW pendientes (opcionales, no aplicados):** excepción cruda al cliente + códigos HTTP
+  (`PublishController` catch final); falta `checkMaxUploadSize()`/validación de contenido; temporal
+  huérfano si falla antes del `save`; `down()` destructivo si el grupo preexistía.
 
-### Siguiente paso — validación end-to-end (ejecutar cuando el motor Docker responda)
-```powershell
-docker version                                   # 1. confirmar Server arriba
-docker compose up --build -d                     # 2. levantar entorno (CMS en http://localhost)
-docker compose logs -f web                        #    esperar "Starting webserver"
-# 3. lint PHP del código custom
-docker compose exec -T web php -l custom/DisplaFruit/Controller/PublishController.php
-docker compose exec -T web php -l custom/DisplaFruit/Controller/DashboardController.php
-docker compose exec -T web php -l custom/DisplaFruit/Middleware/DisplaFruitMiddleware.php
-docker compose exec -T web composer phpcs         # 4. estilo (ruleset xibo)
-docker compose exec -T web php vendor/bin/phinx migrate -c phinx.php   # 5. migración del rol
-docker compose exec -T web php vendor/bin/phinx status  -c phinx.php
-# 6. funcional: login con marca → grupo "Operador Pantallas" existe → panel /displafruit/dashboard
-#    → POST /api/displafruit/publish-all (multipart: file, duration, name) debe dar success:true
-```
-- Login admin: `xibo_admin` / `password`. Recordatorio: para que el operador vea/publique en
-  pantallas hay que **compartir las pantallas con el grupo "Operador Pantallas"** (o token OAuth
-  de un admin para Power Automate). Logo oficial aún por sustituir en `docker/brand/`.
+### Validación end-to-end — TODO VERDE (2026-06-30)
+- ✅ **Lint PHP** los 3 ficheros custom; ✅ **phpcs** (ruleset xibo) exit 0 sin violaciones.
+- ✅ **Migración** `DisplafruitOperatorRoleMigration` corre en el install → grupo **"Operador
+  Pantallas"** (groupId=9, `defaultHomepageId=statusdashboard.view`, features con `displafruit.operator`).
+- ✅ **Login** `xibo_admin`/`password` → 302. ✅ **`/displafruit/dashboard`** renderiza (HTTP 200)
+  con el estado vacío mejorado (no hay players Android de alta, esperado).
+- ✅ **`POST /displafruit/publish-all`** (multipart `file`+`name`+`duration`, CSRF por campo
+  `csrfToken` + cabecera `X-XSRF-TOKEN`) → `{"success":true,"screens_updated":0,"layout_id":2}`.
+  Efectos verificados: media `1.png` en `library/`, layout `media_..._1` (status=1) + `2.xlf`,
+  schedule eventId=1 `eventTypeId=7` `is_priority=1` vinculado al grupo auto-creado
+  **"DisplaFruit - Todas"** (id=1). `screens_updated=0` correcto (sin pantallas online).
+
+### Lo que QUEDA
+- **Branding (bloqueado en assets del usuario — dijo "aún no los tengo"):** sustituir, MISMOS
+  nombres, en `docker/brand/`: **[HIGH]** `xibologo.png` (sigue siendo el logo Xibo byte a byte;
+  arregla cabecera/About/2FA/install de golpe); **[MED]** `favicon.ico`, `192x192.png`,
+  `512x512.png`, `logo-icon.svg`; **[LOW]** `logo.svg` (wordmark vectorial oficial). Tras
+  sustituir: `docker compose restart web` (el entrypoint copia `/brand/*` a `library/brand/` solo
+  si no existen; en dev se sirven desde `docker/brand/` directamente).
+- **Commit pendiente:** las 4 correcciones MED + esta actualización del handoff (el usuario no ha
+  pedido commitear todavía). Ficheros tocados: `PublishController.php`, `DisplaFruitMiddleware.php`,
+  `views/displafruit-dashboard.twig`, `CLAUDE.md`.
+- **Prueba con pantalla real:** para ver `screens_updated > 0` hay que dar de alta una Smart TV con
+  **Xibo for Android**, autorizarla y compartirla con "Operador Pantallas" (o usar token OAuth de
+  admin para Power Automate).
+- Login admin: `xibo_admin` / `password`. CMS en http://localhost.

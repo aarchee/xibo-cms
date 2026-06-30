@@ -130,8 +130,14 @@
 
         {% if displays is empty %}
             <div class="df-empty">
-                Aún no hay pantallas registradas. Da de alta las Smart TVs desde la app
-                <strong>Xibo for Android</strong> y autorízalas en el CMS.
+                No ves ninguna pantalla. Puede deberse a dos motivos:
+                <ul style="margin: 0.6rem 0 0; padding-left: 1.2rem; text-align: left;">
+                    <li>Aún no se ha dado de alta ninguna Smart TV: instálalas con la app
+                        <strong>Xibo for Android</strong> y autorízalas en el CMS.</li>
+                    <li>Las pantallas ya existen pero todavía no se han compartido con tu grupo.
+                        Pide a un administrador que comparta las pantallas con el grupo
+                        <strong>«Operador Pantallas»</strong>.</li>
+                </ul>
             </div>
         {% else %}
             <div class="df-grid">

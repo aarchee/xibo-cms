@@ -67,9 +67,12 @@ class DisplaFruitMiddleware implements MiddlewareInterface
 
         if ($name === 'web') {
             // Panel simplificado del operador (autenticación por sesión + CSRF).
+            // Solo 'displafruit.operator': FeatureAuth es OR, así que añadir 'displays.view'
+            // dejaría entrar a cualquier usuario con vista de pantallas. Los super-admins
+            // siguen pasando porque User::featureEnabled() devuelve true para ellos.
             $app->get('/displafruit/dashboard', [DashboardController::class, 'dashboard'])
                 ->setName('displafruit.dashboard')
-                ->add(new FeatureAuth($container, ['displafruit.operator', 'displays.view']));
+                ->add(new FeatureAuth($container, ['displafruit.operator']));
 
             // Publicación rápida desde el panel web (sesión + CSRF).
             $app->post('/displafruit/publish-all', [PublishController::class, 'publishAll'])
