@@ -500,7 +500,7 @@ Docker Compose development environment includes:
 
 > Sección de continuidad de sesión para el fork DisplaFruit. Se carga automáticamente al
 > abrir el terminal: al volver, basta con pedir "continúa con la validación de DisplaFruit".
-> **Última actualización: 2026-06-29.** Rama: `displafruit/main`.
+> **Última actualización: 2026-06-30.** Rama: `displafruit/main`.
 
 ### Hecho y commiteado
 - **Personalización inicial** (4 entregables): entorno+docs, branding, rol "Operador Pantallas"
@@ -518,12 +518,58 @@ Docker Compose development environment includes:
   5. **[INFO]** Migración: eliminado `schedule.now` (permiso muerto).
 - Detalle completo en `CHANGELOG_DISPLAFRUIT.md`; arranque/uso en `README_DISPLAFRUIT.md`.
 
-### Bloqueo del entorno (en curso)
-- Validación end-to-end pendiente porque **Docker Desktop estaba instalado pero su motor
-  Linux no arrancaba: faltaba WSL2** (`wsl --status` → "no instalado"; en el host no hay
-  PHP/Composer, solo Node). **El usuario instaló WSL2 el 2026-06-29 y va a reiniciar.**
-- **Al volver tras el reinicio:** comprobar `docker version` (debe mostrar `Server`). Si sigue
-  caído, plan B: backend **Hyper-V** en Docker Desktop (Windows 11 Pro).
+### Bloqueo del entorno — DIAGNÓSTICO FINAL (2026-06-30): falta activar VT-x en la BIOS
+- WSL2 quedó **bien instalado** tras el reinicio del 2026-06-29 (WSL 2.7.10, kernel 6.18.33.2-2).
+  Ese ya **no** es el problema. Plan B Hyper-V **descartado**: tiene el mismo requisito.
+- **Causa raíz real:** la virtualización del CPU (**Intel VT-x**) está **DESACTIVADA en la BIOS**.
+  Diagnóstico en el host (2026-06-30):
+  - `Win32_Processor.VirtualizationFirmwareEnabled : False`  ← VT-x apagado en firmware
+  - `VMMonitorModeExtensions : True` y `SecondLevelAddressTranslation : True`  ← el i3-10105 SÍ lo soporta
+  - `HyperVRequirementVirtualizationFirmwareEnabled : False`, `HyperVisorPresent : False`
+  - Docker Desktop muestra el aviso **"Virtualization support not detected"**.
+  - Síntoma colateral: servicio `com.docker.service` queda en *Stopped* y el motor no responde.
+- **Acción del usuario (en curso): reiniciar el PC y entrar a la BIOS para activar VT-x.**
+  Ruta cómoda en Win11: *Config → Sistema → Recuperación → Inicio avanzado → Reiniciar ahora →
+  Solucionar problemas → Opciones avanzadas → Configuración de firmware UEFI*. Dentro: activar
+  **"Intel Virtualization Technology" / VT-x** (suele estar en *Advanced → CPU Configuration*) y
+  si está, **VT-d**; Guardar y salir (F10).
+- **Al volver tras el reinicio:** `docker version` debe mostrar `Server`. Si VT-x quedó activado,
+  el backend **WSL2 (ya instalado, recomendado)** levanta el motor — no hace falta Hyper-V.
+  Si Docker no arranca su servicio solo: Docker Desktop → clic derecho → *Ejecutar como
+  administrador*, o en PowerShell elevada `Start-Service com.docker.service`.
+
+### Auditoría del código custom (2026-06-30) — "qué falta", VERIFICADO por 6 agentes
+> Revisión multiagente del estado real del código (no solo del handoff). Wf `displafruit-gap-audit`.
+- **Wiring CONFIRMADO completo:** las rutas `/displafruit/dashboard` y `POST /api/displafruit/publish-all`
+  **no darán 404** y el middleware **sí corre** en arranque Docker limpio. Cadena:
+  `composer.json:121` (PSR-4) → `docker/entrypoint.sh:83` genera `web/settings.php` desde plantilla →
+  `docker/tmp/settings.php-template:43-45` incluye `custom/settings-custom.php:16-22` (`global $middleware`) →
+  `lib/Service/ConfigService.php:217,240-241` → `lib/Middleware/State.php:337-348` →
+  `DisplaFruitMiddleware::addRoutes()`. Las 5 correcciones del commit `3f78685` están confirmadas reales.
+  - ⚠️ Precondición: si quedó un `web/settings.php` viejo (volumen/bind-mount), no tendrá el `include`
+    y todo daría 404 en silencio. En el repo no hay `settings.php` → `up --build` limpio lo regenera bien.
+- **Pendientes de código MED (no bloquean; conviene antes de producción) — SIN APLICAR aún:**
+  1. **Dashboard no restringido al operador.** `FeatureAuth` es OR; la ruta pide
+     `['displafruit.operator','displays.view']` → cualquiera con `displays.view` entra. Dejar solo
+     `['displafruit.operator']`. → `custom/DisplaFruit/Middleware/DisplaFruitMiddleware.php:70-72`.
+  2. **`displayGroupId` arbitrario sobre-permite.** `getById($id)` usa `disableUserCheck=true`; con
+     `isPriority=1` cualquiera empuja a cualquier grupo. Usar `getById($id, false)` o validar permiso.
+     → `custom/DisplaFruit/Controller/PublishController.php:212`.
+  3. **Sin rollback transaccional:** media/layout/fichero huérfanos si falla layout/schedule tras crear
+     el media. Añadir limpieza o transacción. → `PublishController.php:136-172`.
+  4. **Dashboard vacío engaña:** si no hay pantallas compartidas con el grupo, dice "no hay pantallas
+     registradas" en vez de "pide al admin que comparta pantallas". → `displafruit-dashboard.twig:131-135`.
+  - LOW (opcionales): mensaje de excepción crudo al cliente + códigos HTTP (`PublishController.php:194-200`);
+    falta `checkMaxUploadSize()` y validación de contenido (`:120-126`); temporal huérfano (`:118-136`);
+    `down()` destructivo si el grupo preexistía (migración `:64-70` vs `:89-93`).
+- **Branding — gap MAYOR de lo documentado (necesita assets oficiales del usuario):**
+  - **[HIGH]** `docker/brand/xibologo.png` **sigue siendo el logo de Xibo byte a byte**. Solo se cambió
+    `login.twig` a `logo.svg`. El resto de vistas autenticadas (cabecera tras login, About, 2FA,
+    install/upgrade) muestran aún el logo Xibo. Sustituir ese PNG (mismo nombre) las arregla todas.
+  - **[MED]** Favicon e iconos PWA siguen siendo de Xibo (`favicon.ico`, `192x192.png`, `512x512.png`,
+    `logo-icon.svg`). **[LOW]** `logo.svg` es un wordmark placeholder; falta el vectorial oficial.
+- **Decisión pendiente con el usuario:** aplicar ya las 4 correcciones MED de código (no necesitan Docker).
+  Quedó preguntado; el usuario fue a la BIOS antes de responder.
 
 ### Siguiente paso — validación end-to-end (ejecutar cuando el motor Docker responda)
 ```powershell
