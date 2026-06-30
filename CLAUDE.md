@@ -534,9 +534,15 @@ Docker Compose development environment includes:
   ```powershell
   # 1. vendor/ (genera Composer en el host; el contenedor lo ve por bind-mount)
   docker run --rm -v "${PWD}:/app" composer:2 install --ignore-platform-reqs --no-interaction
-  # 2. web/dist (node_modules en VOLUMEN docker -> rápido en Windows; solo web/dist va al host)
+  # 2. web/dist (UI clásica webpack; node_modules en VOLUMEN docker -> rápido en Windows)
   docker run --rm -v "${PWD}:/app" -v xibo_node_modules:/app/node_modules -w /app node:20 `
     sh -c "npm install --no-audit --no-fund && npm run build"
+  # 2b. Frontend React (SPA /prototype/*) -> web/prototype. OBLIGATORIO: sin esto, tras el login
+  #     se redirige a /prototype/welcome y Apache cicla la reescritura -> 500 (AH00124). Vite escribe
+  #     en frontend/dist (base '/prototype/'); el Dockerfile de prod lo copia a web/prototype.
+  docker run --rm -v "${PWD}:/app" -v xibo_frontend_nm:/app/frontend/node_modules -w /app/frontend node:22 `
+    sh -c "npm install --no-audit --no-fund && npm run build"
+  docker compose exec -T web sh -c "rm -rf /var/www/cms/web/prototype; cp -r /var/www/cms/frontend/dist /var/www/cms/web/prototype; chown -R www-data:www-data /var/www/cms/web/prototype"
   # 3. cache/ + permisos (crea el dir en el host vía bind-mount y lo hace escribible por www-data)
   docker compose exec -T web sh -c "mkdir -p /var/www/cms/cache /var/www/cms/library/temp; `
     chmod -R 777 /var/www/cms/cache /var/www/cms/library; `
@@ -566,26 +572,30 @@ Docker Compose development environment includes:
 ### Validación end-to-end — TODO VERDE (2026-06-30)
 - ✅ **Lint PHP** los 3 ficheros custom; ✅ **phpcs** (ruleset xibo) exit 0 sin violaciones.
 - ✅ **Migración** `DisplafruitOperatorRoleMigration` corre en el install → grupo **"Operador
-  Pantallas"** (groupId=9, `defaultHomepageId=statusdashboard.view`, features con `displafruit.operator`).
-- ✅ **Login** `xibo_admin`/`password` → 302. ✅ **`/displafruit/dashboard`** renderiza (HTTP 200)
-  con el estado vacío mejorado (no hay players Android de alta, esperado).
+  Pantallas"** (`defaultHomepageId=statusdashboard.view`, features con `displafruit.operator`).
+- ✅ **Login** `xibo_admin`/`password` → 302. **Flujo de inicio post-login** (homepage
+  `statusdashboard.view` → `/prototype/welcome`) responde **200** una vez compilado el frontend
+  React (bootstrap paso 2b). Antes daba **500 / AH00124** (bucle de reescritura en `.htaccess`
+  porque faltaba `web/prototype/index.html`).
+- ✅ Rutas del panel operador y admin: `/displafruit/dashboard`, `/prototype/displays/displays`,
+  `/prototype/library/media`, `/prototype/welcome` → todas 200.
 - ✅ **`POST /displafruit/publish-all`** (multipart `file`+`name`+`duration`, CSRF por campo
-  `csrfToken` + cabecera `X-XSRF-TOKEN`) → `{"success":true,"screens_updated":0,"layout_id":2}`.
-  Efectos verificados: media `1.png` en `library/`, layout `media_..._1` (status=1) + `2.xlf`,
-  schedule eventId=1 `eventTypeId=7` `is_priority=1` vinculado al grupo auto-creado
-  **"DisplaFruit - Todas"** (id=1). `screens_updated=0` correcto (sin pantallas online).
+  `csrfToken` + cabecera `X-XSRF-TOKEN`) → `{"success":true,...}`. Efectos verificados en su día:
+  media en `library/`, layout full-screen publicado + `.xlf`, schedule `is_priority=1` sobre el
+  grupo auto-creado **"DisplaFruit - Todas"**.
+- ⚠️ Aprendizaje: tras la prueba de publish, el layout de prueba quedó como `DEFAULT_LAYOUT` y
+  enredó el estado. Se resolvió con **re-init limpio de la BD** (`DROP DATABASE cms; CREATE` +
+  `restart web`). Estado actual **pristino**: 0 media, 0 layouts, `DEFAULT_LAYOUT=1` (placeholder
+  normal de un install nuevo), rol presente, branding intacto.
 
-### Lo que QUEDA
-- **Branding (bloqueado en assets del usuario — dijo "aún no los tengo"):** sustituir, MISMOS
-  nombres, en `docker/brand/`: **[HIGH]** `xibologo.png` (sigue siendo el logo Xibo byte a byte;
-  arregla cabecera/About/2FA/install de golpe); **[MED]** `favicon.ico`, `192x192.png`,
-  `512x512.png`, `logo-icon.svg`; **[LOW]** `logo.svg` (wordmark vectorial oficial). Tras
-  sustituir: `docker compose restart web` (el entrypoint copia `/brand/*` a `library/brand/` solo
-  si no existen; en dev se sirven desde `docker/brand/` directamente).
-- **Commit pendiente:** las 4 correcciones MED + esta actualización del handoff (el usuario no ha
-  pedido commitear todavía). Ficheros tocados: `PublishController.php`, `DisplaFruitMiddleware.php`,
-  `views/displafruit-dashboard.twig`, `CLAUDE.md`.
-- **Prueba con pantalla real:** para ver `screens_updated > 0` hay que dar de alta una Smart TV con
-  **Xibo for Android**, autorizarla y compartirla con "Operador Pantallas" (o usar token OAuth de
-  admin para Power Automate).
+### Estado / lo que QUEDA
+- ✅ **Commiteado** (`70a5194e6` + commit de docs del frontend/bootstrap): 4 correcciones MED,
+  branding placeholder, `GUIA_DE_USO_DISPLAFRUIT.md`, correcciones de bootstrap en README/CLAUDE,
+  `web/prototype` añadido a `.gitignore`.
+- ✅ **Branding placeholder APLICADO** (naranja `#F47920` / marrón `#3D2B1F`, coherente con
+  `logo.svg`): `xibologo.png`, `favicon.ico`, `192x192/512x512.png`, `logo-icon.svg` ya **no** son
+  de Xibo. **Pendiente:** assets OFICIALES del usuario (dijo "aún no los tengo") → sustituir, mismos
+  nombres, en `docker/brand/` y copiar a `library/brand/` (o `restart web` si `library/brand` vacío).
+- **Prueba con pantalla real:** para `screens_updated > 0`, dar de alta una Smart TV con **Xibo for
+  Android**, autorizarla y compartirla con "Operador Pantallas" (o token OAuth de admin para Power Automate).
 - Login admin: `xibo_admin` / `password`. CMS en http://localhost.

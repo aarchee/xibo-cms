@@ -166,9 +166,14 @@ docker compose up --build -d
 # 3. Preparar dependencias (el contenedor de desarrollo NO las trae; hay que generarlas)
 #    a) Librerías PHP (genera la carpeta vendor/)
 docker run --rm -v "${PWD}:/app" composer:2 install --ignore-platform-reqs --no-interaction
-#    b) Recursos web (genera web/dist) — node_modules va a un volumen para que sea rápido
+#    b) Recursos web clásicos (genera web/dist) — node_modules va a un volumen para que sea rápido
 docker run --rm -v "${PWD}:/app" -v xibo_node_modules:/app/node_modules -w /app node:20 `
   sh -c "npm install --no-audit --no-fund && npm run build"
+#    b2) Frontend moderno React (las páginas /prototype/*) -> web/prototype. SIN ESTE PASO,
+#        al iniciar sesión sale "Internal Server Error" (error 500). Es obligatorio.
+docker run --rm -v "${PWD}:/app" -v xibo_frontend_nm:/app/frontend/node_modules -w /app/frontend node:22 `
+  sh -c "npm install --no-audit --no-fund && npm run build"
+docker compose exec -T web sh -c "rm -rf /var/www/cms/web/prototype; cp -r /var/www/cms/frontend/dist /var/www/cms/web/prototype; chown -R www-data:www-data /var/www/cms/web/prototype"
 #    c) Carpeta de caché con permisos de escritura
 docker compose exec -T web sh -c "mkdir -p /var/www/cms/cache /var/www/cms/library/temp; chmod -R 777 /var/www/cms/cache /var/www/cms/library; chown -R www-data:www-data /var/www/cms/cache /var/www/cms/library"
 
@@ -190,6 +195,7 @@ Luego entra en http://localhost con `xibo_admin` / `password`.
 | Síntoma | Qué hacer |
 |---|---|
 | La web no carga (http://localhost) | ¿Está Docker Desktop en verde? ¿Hiciste `docker compose up -d`? |
+| **Error 500 / "Internal Server Error" tras iniciar sesión** | Falta compilar el frontend React: paso **9.3 b2** (genera `web/prototype`). |
 | *"Installation Error: Cannot write... Cache Folder"* | Paso **9.3c** (crear `cache/` y dar permisos). |
 | Páginas sin estilos / rotas | Falta compilar recursos: paso **9.3b** (`web/dist`). |
 | Errores de "tabla no existe" / login falla | Faltan las dependencias PHP o la base de datos: pasos **9.3a** y **9.4**. |

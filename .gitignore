@@ -17,6 +17,7 @@ node_modules
 results.xml
 containers/
 web/dist
+web/prototype
 modules/bundle*.js*
 modules/assets/pdfjs
 

@@ -64,9 +64,14 @@ docker compose up --build -d
 # 4. PREPARAR DEPENDENCIAS — SOLO LA PRIMERA VEZ (el contenedor dev no trae Composer/Node)
 #    a) Librerías PHP -> genera vendor/ (sin esto, no hay migraciones ni arranque del CMS)
 docker run --rm -v "${PWD}:/app" composer:2 install --ignore-platform-reqs --no-interaction
-#    b) Recursos web -> genera web/dist (node_modules en un volumen para que sea rápido en Windows)
+#    b) Recursos web (UI clásica) -> genera web/dist (node_modules en un volumen -> rápido en Windows)
 docker run --rm -v "${PWD}:/app" -v xibo_node_modules:/app/node_modules -w /app node:20 `
   sh -c "npm install --no-audit --no-fund && npm run build"
+#    b2) Frontend React (SPA de /prototype/*: bienvenida, pantallas, biblioteca...) -> web/prototype
+#        OBLIGATORIO: sin esto, tras el login da error 500 (bucle de reescritura en /prototype/welcome).
+docker run --rm -v "${PWD}:/app" -v xibo_frontend_nm:/app/frontend/node_modules -w /app/frontend node:22 `
+  sh -c "npm install --no-audit --no-fund && npm run build"
+docker compose exec -T web sh -c "rm -rf /var/www/cms/web/prototype && cp -r /var/www/cms/frontend/dist /var/www/cms/web/prototype && chown -R www-data:www-data /var/www/cms/web/prototype"
 #    c) Carpeta cache/ con permisos (si no, da "Installation Error: Cannot write... Cache Folder")
 docker compose exec -T web sh -c "mkdir -p /var/www/cms/cache /var/www/cms/library/temp; chmod -R 777 /var/www/cms/cache /var/www/cms/library; chown -R www-data:www-data /var/www/cms/cache /var/www/cms/library"
 #    d) Aplicar BD + rol de operador (reinicia: el entrypoint instala solo al ver la BD vacía)
