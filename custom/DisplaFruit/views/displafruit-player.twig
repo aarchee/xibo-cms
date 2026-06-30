@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+{#
+  DisplaFruit Signage — "player web".
+  Página a pantalla completa que sondea /displafruit/player/state y muestra el contenido
+  publicado (imagen/vídeo/PDF). Pensada para abrirse en un navegador-kiosko en una Smart TV.
+#}
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <title>DisplaFruit — Pantalla</title>
+    <link rel="shortcut icon" href="{{ theme.rootUri() }}brand/favicon.ico">
+    <style>
+        html, body {
+            margin: 0; padding: 0; height: 100%; width: 100%;
+            background: #000; overflow: hidden; cursor: none;
+        }
+        #df-stage { position: fixed; inset: 0; background: #000; }
+        /* Imagen / vídeo / PDF a pantalla completa, sin recortar (contain). */
+        .df-media {
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            object-fit: contain; background: #000; border: 0;
+        }
+        /* Pantalla de espera (sin contenido), con marca DisplaFruit. */
+        #df-idle {
+            position: fixed; inset: 0; display: flex;
+            flex-direction: column; align-items: center; justify-content: center;
+            background: #F5F5F5; font-family: Arial, Helvetica, sans-serif;
+        }
+        #df-idle img { width: min(40vw, 360px); height: auto; }
+        #df-idle .df-idle-text { margin-top: 1.2rem; color: #3D2B1F; opacity: .65; font-size: clamp(14px, 2.2vw, 22px); }
+        #df-conn { position: fixed; bottom: 10px; right: 14px; color: #c62828; font-family: Arial, sans-serif;
+                   font-size: 12px; opacity: 0; transition: opacity .3s; }
+        #df-conn.show { opacity: .8; }
+    </style>
+</head>
+<body>
+    <div id="df-stage"></div>
+
+    <div id="df-idle">
+        <img src="{{ theme.rootUri() }}brand/logo.svg" alt="DisplaFruit">
+        <div class="df-idle-text">Sin contenido — esperando publicación…</div>
+    </div>
+
+    <div id="df-conn">Sin conexión con el servidor</div>
+
+    <script nonce="{{ cspNonce }}">
+        (function () {
+            var group = {{ groupKey|json_encode|raw }};
+            var pollMs = {{ pollSeconds }} * 1000;
+
+            var stage = document.getElementById('df-stage');
+            var idle = document.getElementById('df-idle');
+            var conn = document.getElementById('df-conn');
+            var current = null;       // versión del contenido en pantalla
+            var failures = 0;
+
+            function clearStage() {
+                var els = stage.querySelectorAll('.df-media');
+                for (var i = 0; i < els.length; i++) { els[i].remove(); }
+            }
+            function showIdle() { idle.style.display = 'flex'; }
+            function hideIdle() { idle.style.display = 'none'; }
+
+            function render(state) {
+                if (!state || !state.playing) {
+                    if (current !== null) { clearStage(); }
+                    current = null;
+                    showIdle();
+                    return;
+                }
+                // Mismo contenido que ya se muestra: no tocar (evita reiniciar el vídeo).
+                if (state.version === current) { return; }
+
+                current = state.version;
+                clearStage();
+                hideIdle();
+
+                var type = (state.type || '').toLowerCase();
+                if (type === 'video') {
+                    var v = document.createElement('video');
+                    v.className = 'df-media';
+                    v.src = state.url;
+                    v.autoplay = true; v.muted = true; v.loop = true;
+                    v.setAttribute('playsinline', '');
+                    stage.appendChild(v);
+                    var p = v.play();
+                    if (p && p.catch) { p.catch(function () {}); }
+                } else if (type === 'pdf') {
+                    var f = document.createElement('iframe');
+                    f.className = 'df-media';
+                    f.src = state.url + '#toolbar=0&navpanes=0&view=Fit';
+                    stage.appendChild(f);
+                } else {
+                    var img = document.createElement('img');
+                    img.className = 'df-media';
+                    img.src = state.url;
+                    stage.appendChild(img);
+                }
+            }
+
+            function poll() {
+                fetch('/displafruit/player/state?group=' + encodeURIComponent(group), { cache: 'no-store' })
+                    .then(function (r) {
+                        if (!r.ok) { throw new Error('HTTP ' + r.status); }
+                        return r.json();
+                    })
+                    .then(function (state) {
+                        failures = 0; conn.classList.remove('show');
+                        render(state);
+                    })
+                    .catch(function () {
+                        // Mantener lo que haya en pantalla; avisar tras varios fallos seguidos.
+                        failures++;
+                        if (failures >= 3) { conn.classList.add('show'); }
+                    });
+            }
+
+            poll();
+            setInterval(poll, pollMs);
+        })();
+    </script>
+</body>
+</html>

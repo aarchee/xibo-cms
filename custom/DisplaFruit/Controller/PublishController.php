@@ -38,6 +38,7 @@ use Xibo\Factory\MediaFactory;
 use Xibo\Factory\ModuleFactory;
 use Xibo\Factory\ScheduleFactory;
 use Xibo\Service\MediaService;
+use Xibo\Storage\StorageServiceInterface;
 use Xibo\Support\Exception\LibraryFullException;
 
 class PublishController extends Base
@@ -55,7 +56,8 @@ class PublishController extends Base
         private readonly DisplayFactory $displayFactory,
         private readonly CampaignFactory $campaignFactory,
         private readonly FolderFactory $folderFactory,
-        private readonly MediaService $mediaService
+        private readonly MediaService $mediaService,
+        private readonly StorageServiceInterface $store
     ) {
     }
 
@@ -196,6 +198,16 @@ class PublishController extends Base
                 throw $inner;
             }
 
+            // --- 6b. Reflejar el contenido en el "player web" (best-effort, no bloquea) ---
+            // Permite que las Smart TV con un navegador-kiosko (sin el player de pago de Xibo)
+            // muestren lo publicado abriendo /displafruit/player.
+            try {
+                $this->upsertNowPlaying($displayGroup, $media, $module->type, $mediaName, $durationSecs);
+            } catch (\Throwable $e) {
+                $this->getLog()->error('DisplaFruit publish-all: no se pudo actualizar el player web: '
+                    . $e->getMessage());
+            }
+
             // --- 7. Contar pantallas activas (online) en el grupo ---
             $screensUpdated = count($this->displayFactory->query(null, [
                 'displayGroupId'  => $displayGroup->displayGroupId,
@@ -277,5 +289,42 @@ class PublishController extends Base
         ]);
 
         return $group;
+    }
+
+    /**
+     * Reflejar el contenido recién publicado en la tabla del player web (UPSERT por grupo).
+     * groupKey 'all' para el grupo "DisplaFruit - Todas"; el nombre del grupo en otro caso.
+     */
+    private function upsertNowPlaying($displayGroup, $media, string $mediaType, string $name, int $durationSecs): void
+    {
+        $groupKey = ($displayGroup->displayGroup === self::ALL_DISPLAYS_GROUP)
+            ? 'all'
+            : $displayGroup->displayGroup;
+        $now = (int) Carbon::now()->format('U');
+        $expiresAt = $durationSecs > 0 ? $now + $durationSecs : 0;
+
+        $this->store->update(
+            'INSERT INTO `displafruit_now_playing`
+                (groupKey, mediaId, mediaType, name, durationSecs, publishedAt, expiresAt)
+             VALUES (:groupKey, :mediaId, :mediaType, :name, :durationSecs, :publishedAt, :expiresAt)
+             ON DUPLICATE KEY UPDATE
+                mediaId = :u_mediaId, mediaType = :u_mediaType, name = :u_name,
+                durationSecs = :u_durationSecs, publishedAt = :u_publishedAt, expiresAt = :u_expiresAt',
+            [
+                'groupKey' => $groupKey,
+                'mediaId' => $media->mediaId,
+                'mediaType' => $mediaType,
+                'name' => $name,
+                'durationSecs' => $durationSecs,
+                'publishedAt' => $now,
+                'expiresAt' => $expiresAt,
+                'u_mediaId' => $media->mediaId,
+                'u_mediaType' => $mediaType,
+                'u_name' => $name,
+                'u_durationSecs' => $durationSecs,
+                'u_publishedAt' => $now,
+                'u_expiresAt' => $expiresAt,
+            ]
+        );
     }
 }

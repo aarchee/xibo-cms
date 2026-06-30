@@ -17,6 +17,7 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface as Handler;
 use Xibo\Custom\DisplaFruit\Controller\DashboardController;
+use Xibo\Custom\DisplaFruit\Controller\PlayerController;
 use Xibo\Custom\DisplaFruit\Controller\PublishController;
 use Xibo\Middleware\CustomMiddlewareTrait;
 use Xibo\Middleware\FeatureAuth;
@@ -54,7 +55,18 @@ class DisplaFruitMiddleware implements MiddlewareInterface
                 $c->get('displayFactory'),
                 $c->get('campaignFactory'),
                 $c->get('folderFactory'),
-                $c->get('mediaService')
+                $c->get('mediaService'),
+                $c->get('store')
+            );
+            $controller->useBaseDependenciesService($c->get('ControllerBaseDependenciesService'));
+            return $controller;
+        });
+
+        // Player web (reproductor gratuito basado en navegador).
+        $container->set(PlayerController::class, function ($c) {
+            $controller = new PlayerController(
+                $c->get('store'),
+                $c->get('mediaFactory')
             );
             $controller->useBaseDependenciesService($c->get('ControllerBaseDependenciesService'));
             return $controller;
@@ -78,6 +90,16 @@ class DisplaFruitMiddleware implements MiddlewareInterface
             $app->post('/displafruit/publish-all', [PublishController::class, 'publishAll'])
                 ->setName('displafruit.publishAll.web')
                 ->add(new FeatureAuth($container, ['library.add']));
+
+            // Player web (reproductor gratuito para Smart TV en navegador-kiosko).
+            // SIN FeatureAuth: son rutas PÚBLICAS (la TV no inicia sesión). Se marcan como
+            // públicas en process() vía appendPublicRoutes para que WebAuthentication no redirija.
+            $app->get('/displafruit/player', [PlayerController::class, 'player'])
+                ->setName('displafruit.player');
+            $app->get('/displafruit/player/state', [PlayerController::class, 'state'])
+                ->setName('displafruit.player.state');
+            $app->get('/displafruit/player/media/{id}', [PlayerController::class, 'media'])
+                ->setName('displafruit.player.media');
         } elseif ($name === 'api') {
             // Endpoint REST para integraciones (Power Automate, etc.) — OAuth2.
             $app->post('/displafruit/publish-all', [PublishController::class, 'publishAll'])
@@ -98,6 +120,15 @@ class DisplaFruitMiddleware implements MiddlewareInterface
         } catch (\Throwable $e) {
             // Nunca bloquear la petición por esto.
         }
+
+        // Marcar como públicas las rutas del player web (la Smart TV no está autenticada).
+        // Este middleware corre después de State (que fija publicRoutes) y antes de
+        // WebAuthentication (que las lee), por lo que el atributo llega a tiempo.
+        $request = $this->appendPublicRoutes($request, [
+            '/displafruit/player',
+            '/displafruit/player/state',
+            '/displafruit/player/media/{id}',
+        ]);
 
         return $handler->handle($request);
     }
