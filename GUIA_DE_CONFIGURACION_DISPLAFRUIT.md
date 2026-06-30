@@ -99,23 +99,44 @@ publicar es inmediato. En **Ajustes → Displays**:
 
 ---
 
-## 5. 🟢 (Escenario B) Conectar una Smart TV (paso a paso)
+## 5. 🟢 (Escenario B) Mostrar contenido en las pantallas — dos vías
 
-Repite por cada pantalla:
+Hay dos formas de que una pantalla muestre lo que publicas. Elige una:
 
-1. En la Smart TV (Android TV), instala la app **Xibo for Android** (Play Store o APK).
-2. Ábrela → ajustes de la app:
-   - **CMS Address / Dirección:** `http://IP-SERVIDOR`
-   - **CMS Key / Clave:** la del paso 4a.
-3. La TV aparecerá en el CMS pidiendo permiso. Ve a **menú → Pantallas (Displays)** y **autorízala**
-   (botón *Authorise* / *Autorizar*). Ponle un nombre reconocible (p. ej. "Entrada tienda").
-4. **Perfil:** las pantallas Android usan automáticamente el perfil **"Android"** (ya viene creado).
-   No necesitas tocar nada salvo que quieras ajustes finos (volumen, horarios de encendido…), que
-   están en **Pantallas → Perfiles de Display → Android**.
-5. **Comparte la pantalla con el grupo "Operador Pantallas"** (ver paso 6) para que tus operadores
-   puedan publicar en ella.
+### 5A. ⭐ GRATIS — "Player web" (recomendado, sin licencia ni aparato extra)
 
-> Cuando la tarjeta de la pantalla esté **verde** en el panel, está lista para recibir contenido.
+DisplaFruit incluye un reproductor propio basado en navegador. La Smart TV abre una página web a
+pantalla completa que muestra lo publicado. **No necesita Xibo for Android ni pagar nada.**
+
+Por cada pantalla:
+1. En la Smart TV instala un **navegador-kiosko gratuito** que arranque solo al encender y abra una
+   URL a pantalla completa. (En Android TV hay apps de tipo *kiosk browser* con versión gratuita; la
+   opción exacta depende de la marca de la TV.)
+2. Configúralo para abrir al encender, a pantalla completa, esta URL:
+   **`http://IP-SERVIDOR/displafruit/player`**
+   *(para un grupo concreto en el futuro: `…/displafruit/player?group=NOMBRE`; por defecto muestra "todas").*
+3. ¡Listo! Lo que publiques con **"Publicar en todas las pantallas"** aparece ahí solo (la página se
+   refresca cada pocos segundos). Cuando no hay nada publicado, muestra una pantalla de espera con tu logo.
+
+Notas honestas de esta vía:
+- Muestra **imagen, vídeo y PDF a pantalla completa**; no layouts complejos ni widgets.
+- El **vídeo se reproduce sin sonido** (regla de autoplay de los navegadores).
+- Estas pantallas **no** aparecen en *Pantallas (Displays)* del CMS (no son players Xibo), así que el
+  contador "Publicado en N pantallas" del panel **no las cuenta** (saldrá 0 aunque la TV sí muestre el
+  contenido). Es lo esperado con esta vía.
+- La fiabilidad del **auto-arranque** depende de la marca de TV.
+
+### 5B. 💶 DE PAGO — Xibo for Android (más completo, requiere licencia)
+
+Solo si quieres todas las funciones de Xibo (layouts, estadísticas, etc.) y aceptas la licencia
+(~28 € pago único por pantalla). Por cada pantalla:
+1. Instala la app **Xibo for Android** (Play Store o APK).
+2. En sus ajustes: **CMS Address** = `http://IP-SERVIDOR`, **CMS Key** = la del paso 4a.
+3. En el CMS → **Pantallas (Displays)** → **autoriza** la pantalla y ponle nombre.
+4. **Perfil:** usa automáticamente el perfil **"Android"** (ya creado).
+5. **Comparte la pantalla con el grupo "Operador Pantallas"** (paso 6) para que los operadores publiquen en ella.
+
+> Con la vía 5B, cuando la tarjeta de la pantalla esté **verde** en el panel, está lista.
 
 ---
 
@@ -206,7 +227,8 @@ Los comandos exactos (curl) están en `README_DISPLAFRUIT.md`, apartado 6.
 - [ ] Idioma **Español** y zona horaria **Europe/Madrid**.
 - [ ] (Escenario B) IP del servidor conocida/fija; firewall abierto (80 y 9505).
 - [ ] (Escenario B) `XMR_PUB_ADDRESS` = `tcp://IP-SERVIDOR:9505`.
-- [ ] (Escenario B) Al menos una Smart TV conectada, **autorizada** y en **verde**.
+- [ ] (Escenario B) Pantallas mostrando contenido — vía **player web** (la TV abre
+      `http://IP-SERVIDOR/displafruit/player`, GRATIS) o vía **Xibo for Android** (autorizada y en verde).
 - [ ] Pantallas **compartidas** con el grupo "Operador Pantallas".
 - [ ] Al menos un usuario **Operador** creado y probado (publica y aparece en pantalla).
 - [ ] Layout por defecto con marca DisplaFruit.

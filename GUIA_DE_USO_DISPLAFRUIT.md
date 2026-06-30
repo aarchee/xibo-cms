@@ -116,7 +116,14 @@ Cuando esa persona entre, irá directa a su panel simple. **No verá** menús co
 
 ## 7. Conectar una pantalla nueva (Smart TV)
 
-Esto lo hace el **administrador/IT**. Resumen:
+Esto lo hace el **administrador/IT**. Hay **dos vías** (detalle en `GUIA_DE_CONFIGURACION_DISPLAFRUIT.md`, apartado 5):
+
+> ⭐ **Vía GRATIS (recomendada): "player web".** En la Smart TV instala un navegador-kiosko gratuito
+> que arranque solo y abre a pantalla completa la URL **`http://LA-IP-DEL-PC/displafruit/player`**.
+> Ya está: muestra lo que publiques, sin licencia ni dar de alta la pantalla. (Solo imagen/vídeo/PDF;
+> el vídeo va sin sonido.)
+
+La otra vía (de pago, app oficial **Xibo for Android**, ~28 € por pantalla, con todas las funciones):
 
 1. En la Smart TV (Android TV), instala la app **Xibo for Android**.
 2. Ábrela y, en sus ajustes, pon la **dirección del CMS**:

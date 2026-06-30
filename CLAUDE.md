@@ -599,3 +599,30 @@ Docker Compose development environment includes:
 - **Prueba con pantalla real:** para `screens_updated > 0`, dar de alta una Smart TV con **Xibo for
   Android**, autorizarla y compartirla con "Operador Pantallas" (o token OAuth de admin para Power Automate).
 - Login admin: `xibo_admin` / `password`. CMS en http://localhost.
+
+### Player web — reproductor GRATUITO para Smart TV (NUEVO 2026-06-30, commit `3bdcbbf19`)
+> Contexto: el usuario rechaza pagar el reproductor Xibo for Android (de pago tras 14 días) y no
+> puede poner un PC detrás de cada pantalla. Solución: un "player web" propio. La Smart TV abre una
+> URL en un navegador-kiosko gratuito y muestra el contenido publicado a pantalla completa. Sin
+> licencia Xibo y sin aparato extra.
+- **Componentes** (todo en `custom/DisplaFruit/` salvo la migración):
+  - Migración `db/migrations/20260630120000_displafruit_now_playing_migration.php` → tabla
+    `displafruit_now_playing` (UPSERT por `groupKey`: contenido en antena; 'all' = "DisplaFruit - Todas").
+  - `Controller/PlayerController.php` con 3 rutas **PÚBLICAS** (web): `GET /displafruit/player`
+    (página Twig), `GET /displafruit/player/state` (JSON del contenido actual, JOIN con media para
+    ignorar huérfanos), `GET /displafruit/player/media/{id}` (sirve el fichero con `WidgetDownloader`
+    en modo `Off` → streaming PHP con rangos/206; solo media referenciado en now_playing → no expone
+    biblioteca arbitraria).
+  - `views/displafruit-player.twig`: pantalla completa, sondea `state` cada 4s, muestra img/video/iframe
+    (PDF), pantalla de espera branded; `<script nonce="{{ cspNonce }}">`.
+  - `PublishController`: tras publicar hace UPSERT en now_playing (best-effort; inyecta `store`).
+  - `DisplaFruitMiddleware`: registra DI + rutas y las marca públicas con `appendPublicRoutes`
+    (corre entre `State` y `WebAuthentication` → el atributo `publicRoutes` llega a tiempo; el
+    middleware base casa por **patrón de ruta**, `getRoutePattern`).
+- **Cómo se usa:** en cada Smart TV, un navegador-kiosko gratuito (auto-arranque) abre
+  `http://IP-DEL-SERVIDOR/displafruit/player` (o `?group=<nombre>`). Sin Xibo for Android.
+- **Validado E2E sin autenticar:** page 200, state JSON OK, media 200 `image/png`, `Range`→206,
+  media no publicado→404, migración corre en install limpio.
+- **Límites (POC):** solo imagen/vídeo/PDF a pantalla completa (sin layouts/widgets/proof-of-play);
+  vídeo en `muted` (autoplay); fiabilidad del auto-arranque depende de la marca de TV. `object-fit:
+  contain` (no recorta). Polling 4s (no instantáneo pero suficiente).
