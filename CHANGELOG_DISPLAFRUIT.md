@@ -9,6 +9,76 @@ Rama: `displafruit/main`.
 
 ---
 
+## [2026-07-02] Panel del operador — mejora significativa (gestión de contenido)
+
+El panel del operador pasa de "estado + publicar en todas" a una herramienta de gestión real.
+Todo en `custom/DisplaFruit/` + una migración; **sin ediciones de core nuevas**.
+
+### ✅ Nuevo
+- **Migración** `db/migrations/20260702120000_displafruit_publications_migration.php` → tabla
+  `displafruit_publication` (historial/estado de cada publicación: media, destino, programación,
+  enlaces a schedule/campaign/layout, estado active/stopped). Tabla aislada, sin FKs a core.
+- **Publicación segmentada:** además de "Todas", ahora se puede publicar en un **grupo** concreto
+  o en una **pantalla** concreta (respetando la ACL del usuario).
+- **Programación flexible:** **Temporal** (duración en segundos, interrumpe), **Permanente**
+  (hasta que se pare; `toDt = Schedule::$DATE_MAX`, contenido base) y **Rango** (inicio/fin).
+  Checkbox **"Urgente"** para forzar prioridad. En todos los casos `syncTimezone = 1` (corre en
+  hora del CMS) → evita el estado "Fuera de plazo" por el reloj local de la TV.
+- **"En antena ahora":** tarjetas con miniatura, destino, tiempo restante/permanente y botón
+  **Parar** (borra el schedule, marca la publicación parada y limpia el player web).
+- **Republicar** con un clic desde el **Historial** (reutiliza el mismo media).
+- **Estado con auto-refresco:** endpoint JSON `GET /displafruit/dashboard/state` (poll cada 8 s):
+  online/offline, **autorizada sí/no** y **miniatura del contenido actual** por pantalla.
+- **Miniaturas** `GET /displafruit/dashboard/thumbnail/{id}` (con ACL: solo imágenes referenciadas
+  por una publicación DisplaFruit; reutiliza `WidgetDownloader('Off')`).
+- **Grupo "DisplaFruit - Todas" auto-sanado:** `syncMembership()` añade las pantallas que falten
+  (guarda solo si cambió) al publicar y en cada poll de estado → una pantalla autorizada nueva
+  entra en el grupo sin re-publicar. (Grupo dinámico nativo descartado: Xibo exige criterio y no
+  admite "todas"; listener descartado: `registerDispatcher` solo corre en XMDS.)
+
+### ✏️ Editado (solo `custom/DisplaFruit/`)
+- `Controller/PublishController.php` — refactor: destino (all/group/display) + modos de
+  programación + `republish`/`unpublish`/`state`/`history`/`thumbnail` + helpers
+  (`resolveTarget`, `syncAllDisplaysGroup`, `recordPublication`, `mapDisplaysToContent`, …).
+- `Controller/DashboardController.php` — alimenta selectores (grupos con ACL) e intervalo de poll.
+- `Middleware/DisplaFruitMiddleware.php` — registra 5 rutas nuevas (lecturas `displafruit.operator`;
+  mutaciones `library.add`).
+- `views/displafruit-dashboard.twig` — UI nueva (secciones "En antena ahora", pantallas con
+  miniatura/estado, historial) + JS vanilla con auto-refresco (escape de HTML en cliente).
+
+### 🔎 Validación
+- `php -l` OK; `phpcs` (ruleset xibo) limpio en `custom/DisplaFruit/` (la migración solo muestra el
+  aviso "sin namespace", inherente a Phinx, igual que las migraciones existentes).
+- E2E autenticado (admin) verificado: publicar permanente en Todas → `screens_updated`, schedule con
+  `toDt=2147483647`, `now_playing` y "current" del display OK; miniatura 200 `image/png`; republicar;
+  parar → schedule borrado, publicación `stopped`, `now_playing` limpio (0 schedules vivos al final).
+- Compatibilidad: la API `publish-all` antigua (`displayGroupId`/`duration`) sigue funcionando; el
+  player web (`/displafruit/player`) intacto.
+
+### 🛡️ Correcciones tras revisión adversarial (mismo día)
+
+Revisión de 3 dimensiones (seguridad/correctitud/regresiones, 10 agentes): 5 hallazgos confirmados,
+ninguno bloqueante, todos arreglados en `custom/DisplaFruit/`:
+
+1. **[MED seguridad]** `state()` no acotaba "En antena ahora" por usuario (fuga entre operadores).
+   → la lista `nowPlaying` se filtra por `userId` salvo super-admin (coherente con `history()`); el
+   mapeo pantalla→contenido sigue completo (refleja lo que se ve en pantallas visibles por ACL).
+2. **[MED correctitud]** `state()` ignoraba `fromDt` → un "rango" de inicio futuro salía como activo.
+   → añadido `AND (fromDt = 0 OR fromDt <= now)`.
+3. **[MED correctitud]** El player web reproducía un "rango" futuro al instante. → `now_playing` solo
+   refleja contenido **vigente**: `upsertNowPlaying` no sobrescribe con rangos futuros y `PlayerController`
+   filtra por `startAt` (nueva migración `20260702130000`, columna `startAt`).
+4. **[LOW correctitud]** `unpublish` podía dejar el player web en blanco si otra publicación activa
+   usaba el mismo media. → `reconcileNowPlaying()` re-apunta a la publicación vigente más reciente del
+   grupo (o vacía si no queda ninguna).
+5. **[LOW seguridad]** `thumbnail()` servía imágenes de otros operadores (IDOR). → comprobación de
+   referencia acotada por `userId` salvo super-admin.
+
+Re-validado E2E: publicar permanente (aparece), rango futuro (NO aparece en panel ni player web),
+republicar mismo media + parar la vieja (el player NO queda en blanco), limpieza → BD a cero.
+
+---
+
 ## [2026-06-29] Correcciones tras revisión de código
 
 Revisión adversarial del código custom contra el core de Xibo (5 hallazgos confirmados,

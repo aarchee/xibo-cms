@@ -65,11 +65,13 @@ class PlayerController extends Base
         $now = (int) Carbon::now()->format('U');
 
         // INNER JOIN con media -> ignora filas huérfanas (media borrado).
+        // startAt: un 'range' con inicio futuro no se sirve hasta su fecha "Desde".
         $rows = $this->store->select(
             'SELECT np.nowPlayingId, np.mediaId, np.mediaType, np.name, np.durationSecs, np.publishedAt
                FROM `displafruit_now_playing` np
                INNER JOIN `media` m ON m.mediaId = np.mediaId
               WHERE np.groupKey = :groupKey
+                AND (np.startAt = 0 OR np.startAt <= :now)
                 AND (np.expiresAt = 0 OR np.expiresAt > :now)
               ORDER BY np.publishedAt DESC
               LIMIT 1',

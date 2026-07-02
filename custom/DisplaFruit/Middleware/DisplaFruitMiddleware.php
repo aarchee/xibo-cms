@@ -91,6 +91,25 @@ class DisplaFruitMiddleware implements MiddlewareInterface
                 ->setName('displafruit.publishAll.web')
                 ->add(new FeatureAuth($container, ['library.add']));
 
+            // Gestión de contenido del panel (sesión + CSRF).
+            $app->post('/displafruit/republish', [PublishController::class, 'republish'])
+                ->setName('displafruit.republish.web')
+                ->add(new FeatureAuth($container, ['library.add']));
+            $app->post('/displafruit/unpublish', [PublishController::class, 'unpublish'])
+                ->setName('displafruit.unpublish.web')
+                ->add(new FeatureAuth($container, ['library.add']));
+
+            // Lecturas JSON del panel (estado auto-refrescado, historial, miniaturas).
+            $app->get('/displafruit/dashboard/state', [PublishController::class, 'state'])
+                ->setName('displafruit.dashboard.state')
+                ->add(new FeatureAuth($container, ['displafruit.operator']));
+            $app->get('/displafruit/dashboard/history', [PublishController::class, 'history'])
+                ->setName('displafruit.dashboard.history')
+                ->add(new FeatureAuth($container, ['displafruit.operator']));
+            $app->get('/displafruit/dashboard/thumbnail/{id}', [PublishController::class, 'thumbnail'])
+                ->setName('displafruit.dashboard.thumbnail')
+                ->add(new FeatureAuth($container, ['displafruit.operator']));
+
             // Player web (reproductor gratuito para Smart TV en navegador-kiosko).
             // SIN FeatureAuth: son rutas PÚBLICAS (la TV no inicia sesión). Se marcan como
             // públicas en process() vía appendPublicRoutes para que WebAuthentication no redirija.
