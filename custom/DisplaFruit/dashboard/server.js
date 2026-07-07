@@ -28,10 +28,19 @@ const path = require('path');
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const REFRESH_SECONDS = Math.max(5, parseInt(process.env.REFRESH_SECONDS || '20', 10));
-const TITLE = process.env.DASHBOARD_TITLE || 'Producción diaria';
 
 const MSSQL_HOST = (process.env.MSSQL_HOST || '').trim();
 const IS_MOCK = MSSQL_HOST === '';
+
+// Día de referencia: 0 = hoy, -1 = ayer, -2 = anteayer... Util para VALIDAR contra
+// PowerBI (que cierra el dia anterior). Se cambia con la variable DASHBOARD_DAY_OFFSET.
+const DAY_OFFSET = parseInt(process.env.DASHBOARD_DAY_OFFSET || '0', 10);
+// Expresion SQL de la fecha objetivo (en hora local del servidor, Europe/Madrid).
+const DAY_SQL = `CAST(DATEADD(DAY, ${DAY_OFFSET}, GETDATE()) AS date)`;
+// Palabra para las etiquetas de los KPIs.
+const DAY_WORD = DAY_OFFSET === 0 ? 'hoy' : (DAY_OFFSET === -1 ? 'ayer' : ('día ' + DAY_OFFSET));
+const TITLE = process.env.DASHBOARD_TITLE
+    || ('Producción ' + (DAY_OFFSET === 0 ? 'diaria' : DAY_WORD + ' (validación)'));
 
 // ---------------------------------------------------------------------------
 // Consultas contra SQL Server (BD ReportingData de Hispatec).
@@ -41,14 +50,16 @@ const IS_MOCK = MSSQL_HOST === '';
 // validado el 2026-07-07 contra el esquema real (ver README, "Origen de datos").
 //
 // Notas de esquema:
-//   - dbo.ProduccionLineal : produccion confeccionada. Cantidad = kg, NroEnvases = cajas,
-//     FechaFabricacion = dia de fabricacion. Datos al dia.
-//     *** OJO: esta tabla REPITE cada pale una vez por cada linea de pedido/albaran a la
-//     que se asigna, con la MISMA Cantidad en cada fila. Sumar Cantidad "en bruto" infla
-//     el total (verificado 2026-07-07: 45.046 kg brutos vs 19.404 kg reales). Hay que
-//     DEDUPLICAR al grano fisico: 1 pale = 1 unidad = (Pale, Id_NumeroSerie), y tomar
-//     MAX(Cantidad)/MAX(NroEnvases) por unidad antes de sumar. Hoy no hay pales vacios,
-//     asi que agrupar por (Pale, Id_NumeroSerie) es seguro.
+//   - dbo.ProduccionLineal : produccion confeccionada. NroEnvases = cajas del pale,
+//     FechaFabricacion = dia de fabricacion. Datos al dia. GRANO: 1 fila = una PARTIDA
+//     de origen (PartidaOrigen) que entra en un pale; un pale se compone de varias partidas.
+//     *** KG: el peso del pale se obtiene SUMANDO CantidadOrigen de sus partidas (regla de
+//     negocio confirmada por el usuario 2026-07-07). Ej.: pale PT2600017156 = 54+108+90 =
+//     252 kg. La columna Cantidad es un total denormalizado del pale que A VECES NO CUADRA
+//     con la suma real (11 pales descuadrados en 30 dias) -> NO usar Cantidad, usar
+//     CantidadOrigen. Ademas la tabla puede repetir filas por linea de pedido/albaran, asi
+//     que se suma CantidadOrigen sobre DISTINCT (Pale, PartidaOrigen) para no duplicar.
+//     Las cajas del pale (NroEnvases) se repiten en cada fila -> MAX(NroEnvases) por pale.
 //   - dbo.MercanciaVolcada  : materia prima volcada en linea (tiempo real, al minuto).
 //     PesoNetoVolcado = kg. Cada fila es un evento de volcado real -> es aditiva (no duplica).
 //   - dbo.ExistenciasMercancia : stock actual en camara (snapshot). 1 fila = 1 UL (no duplica).
@@ -58,38 +69,47 @@ const IS_MOCK = MSSQL_HOST === '';
 // ---------------------------------------------------------------------------
 
 // KPIs: UNA fila; cada columna es una tarjeta y su alias es la etiqueta mostrada.
-// Produccion/cajas -> deduplicadas por unidad fisica (ver nota de esquema arriba).
+// Kg = SUM(CantidadOrigen) por partida distinta del pale; cajas = NroEnvases por pale.
+// El dia de referencia (${DAY_WORD}) lo fija DASHBOARD_DAY_OFFSET.
 const KPI_QUERY = process.env.DASHBOARD_KPI_QUERY || `
     SELECT
-        (SELECT CAST(ISNULL(SUM(kg),0) AS int) FROM (
-            SELECT MAX(Cantidad) kg FROM dbo.ProduccionLineal
-             WHERE CAST(FechaFabricacion AS date) = CAST(GETDATE() AS date)
-             GROUP BY Pale, Id_NumeroSerie) u) AS [Kg producidos hoy],
-        (SELECT CAST(ISNULL(SUM(c),0) AS int) FROM (
-            SELECT MAX(NroEnvases) c FROM dbo.ProduccionLineal
-             WHERE CAST(FechaFabricacion AS date) = CAST(GETDATE() AS date)
-             GROUP BY Pale, Id_NumeroSerie) u) AS [Cajas hoy],
+        (SELECT CAST(ISNULL(SUM(co),0) AS int) FROM (
+            SELECT DISTINCT Pale, PartidaOrigen, CantidadOrigen co
+              FROM dbo.ProduccionLineal
+             WHERE CAST(FechaFabricacion AS date) = ${DAY_SQL}) t) AS [Kg producidos ${DAY_WORD}],
+        (SELECT CAST(ISNULL(SUM(env),0) AS int) FROM (
+            SELECT Pale, MAX(NroEnvases) env FROM dbo.ProduccionLineal
+             WHERE CAST(FechaFabricacion AS date) = ${DAY_SQL}
+             GROUP BY Pale) t) AS [Cajas ${DAY_WORD}],
         (SELECT CAST(ISNULL(SUM(PesoNetoVolcado),0) AS int)
            FROM dbo.MercanciaVolcada
-          WHERE CAST(Fecha AS date) = CAST(GETDATE() AS date)) AS [Kg volcados hoy],
+          WHERE CAST(Fecha AS date) = ${DAY_SQL}) AS [Kg volcados ${DAY_WORD}],
         (SELECT CAST(ISNULL(SUM(Palets),0) AS int)
            FROM dbo.ExistenciasMercancia) AS [Palets en cámara]
 `;
 
-// Detalle: produccion de hoy por producto (deduplicada por unidad). Columnas dinamicas.
+// Detalle por producto: kg = SUM(CantidadOrigen) por partida distinta; cajas = NroEnvases
+// por pale. Se juntan por producto. Columnas dinamicas (el alias = cabecera).
 const LINES_QUERY = process.env.DASHBOARD_LINES_QUERY || `
-    SELECT NombreProducto AS Producto,
-           CAST(SUM(kg) AS int) AS Kg,
-           CAST(SUM(c) AS int) AS Cajas
+    SELECT kg.NombreProducto AS Producto,
+           CAST(kg.kg AS int) AS Kg,
+           CAST(ISNULL(ca.cajas,0) AS int) AS Cajas
     FROM (
-        SELECT Pale, Id_NumeroSerie, NombreProducto,
-               MAX(Cantidad) kg, MAX(NroEnvases) c
-        FROM dbo.ProduccionLineal
-        WHERE CAST(FechaFabricacion AS date) = CAST(GETDATE() AS date)
-        GROUP BY Pale, Id_NumeroSerie, NombreProducto
-    ) u
-    GROUP BY NombreProducto
-    ORDER BY SUM(kg) DESC
+        SELECT NombreProducto, SUM(co) kg FROM (
+            SELECT DISTINCT Pale, PartidaOrigen, NombreProducto, CantidadOrigen co
+              FROM dbo.ProduccionLineal
+             WHERE CAST(FechaFabricacion AS date) = ${DAY_SQL}) d
+        GROUP BY NombreProducto
+    ) kg
+    LEFT JOIN (
+        SELECT NombreProducto, SUM(env) cajas FROM (
+            SELECT Pale, NombreProducto, MAX(NroEnvases) env
+              FROM dbo.ProduccionLineal
+             WHERE CAST(FechaFabricacion AS date) = ${DAY_SQL}
+             GROUP BY Pale, NombreProducto) d
+        GROUP BY NombreProducto
+    ) ca ON kg.NombreProducto = ca.NombreProducto
+    ORDER BY kg.kg DESC
 `;
 
 // ---------------------------------------------------------------------------
@@ -143,9 +163,11 @@ function deriveColumns(rows) {
 
 async function fetchFromSql() {
     const pool = await getPool();
-    const [kpiResult, linesResult] = await Promise.all([
+    const [kpiResult, linesResult, dateResult] = await Promise.all([
         pool.request().query(KPI_QUERY),
         pool.request().query(LINES_QUERY),
+        // Fecha de referencia (dd/mm/aaaa) segun la hora local del servidor SQL.
+        pool.request().query(`SELECT CONVERT(varchar(10), ${DAY_SQL}, 103) AS d`),
     ]);
 
     const kpiRow = kpiResult.recordset[0] || {};
@@ -155,7 +177,8 @@ async function fetchFromSql() {
     }));
 
     const lines = linesResult.recordset || [];
-    return { kpis: kpis, lines: lines, columns: deriveColumns(lines) };
+    const refDate = (dateResult.recordset[0] || {}).d || null;
+    return { kpis: kpis, lines: lines, columns: deriveColumns(lines), refDate: refDate };
 }
 
 // --- Datos DEMO: mismo esquema que produccion, varian un poco en cada lectura ---
@@ -180,15 +203,22 @@ function fetchMock() {
         };
     });
 
+    // Fecha de referencia demo (dd/mm/aaaa) segun DAY_OFFSET.
+    const ref = new Date();
+    ref.setDate(ref.getDate() + DAY_OFFSET);
+    const refDate = ('0' + ref.getDate()).slice(-2) + '/' +
+        ('0' + (ref.getMonth() + 1)).slice(-2) + '/' + ref.getFullYear();
+
     return {
         kpis: [
-            { label: 'Kg producidos hoy', value: mockState.kg },
-            { label: 'Cajas hoy', value: mockState.cajas },
-            { label: 'Kg volcados hoy', value: mockState.volcado },
+            { label: 'Kg producidos ' + DAY_WORD, value: mockState.kg },
+            { label: 'Cajas ' + DAY_WORD, value: mockState.cajas },
+            { label: 'Kg volcados ' + DAY_WORD, value: mockState.volcado },
             { label: 'Palets en cámara', value: 259 },
         ],
         lines: lines,
         columns: deriveColumns(lines),
+        refDate: refDate,
     };
 }
 
@@ -209,6 +239,7 @@ async function handleData(res) {
             title: TITLE,
             refreshSeconds: REFRESH_SECONDS,
             updatedAt: new Date().toISOString(),
+            refDate: data.refDate || null,
             kpis: data.kpis,
             lines: data.lines,
             columns: data.columns || [],

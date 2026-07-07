@@ -42,6 +42,8 @@ services:
       MSSQL_PASSWORD: "${MSSQL_PASSWORD:-}"
       MSSQL_ENCRYPT: "${MSSQL_ENCRYPT:-false}"
       REFRESH_SECONDS: "${DASHBOARD_REFRESH_SECONDS:-20}"
+      # Día de referencia: 0=hoy, -1=ayer (validación contra PowerBI).
+      DASHBOARD_DAY_OFFSET: "${DASHBOARD_DAY_OFFSET:-0}"
 
 volumes:
   displafruit_db:

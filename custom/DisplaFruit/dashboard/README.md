@@ -51,14 +51,18 @@ exploró el esquema y se eligieron las tablas con datos **al día**:
 `GETDATE()` en este servidor devuelve la **hora local (Europe/Madrid)**, por lo que el filtro
 `CAST(campo AS date) = CAST(GETDATE() AS date)` acota "hoy" correctamente.
 
-### ⚠️ Deduplicación en `ProduccionLineal` (importante)
+### ⚠️ Cómo se calculan los kg en `ProduccionLineal` (regla de negocio)
 
-`dbo.ProduccionLineal` **repite cada pale una vez por cada línea de pedido/albarán** a la que se
-asigna, con la **misma `Cantidad` en cada fila**. Sumar `Cantidad` en bruto **infla** el total
-(verificado 2026-07-07: **45.046 kg brutos vs 19.404 kg reales**; el producto GRANEL, que más se
-reparte entre pedidos, era el más afectado: 40.346 → 14.704). Por eso los KPIs de producción y la
-tabla por producto **deduplican al grano físico**: 1 pale = 1 unidad = `(Pale, Id_NumeroSerie)`,
-tomando `MAX(Cantidad)`/`MAX(NroEnvases)` por unidad antes de sumar.
+El **grano** de esta tabla es **una partida de origen por fila**: un pale se compone de varias
+partidas, y **el peso del pale se obtiene sumando `CantidadOrigen`** de sus partidas (regla
+confirmada por negocio). Ejemplo real: pale `PT2600017156` = `54 + 108 + 90 = 252 kg`.
+
+- **NO usar la columna `Cantidad`**: es un total denormalizado del pale que **a veces no cuadra**
+  con la suma real de partidas (verificado: 11 pales descuadrados en 30 días).
+- **Kg del día** = `SUM(CantidadOrigen)` sobre **`DISTINCT (Pale, PartidaOrigen)`** (el `DISTINCT`
+  evita duplicar si la tabla repite filas por línea de pedido/albarán).
+- **Cajas del día** = `MAX(NroEnvases)` por pale, sumado (las cajas son atributo del pale, se
+  repiten en cada fila; `CajasOrigen` es fraccional y **no** es el nº de cajas).
 
 En cambio, `MercanciaVolcada` (cada fila = un evento de volcado) y `ExistenciasMercancia`
 (1 fila = 1 UL) **no** duplican, así que se suman directamente.

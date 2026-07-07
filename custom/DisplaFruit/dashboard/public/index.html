@@ -63,6 +63,7 @@
     .aviso { display: none; font-weight: 700; padding: 0.4vh 1.2vw; border-radius: 99px; font-size: 2vh; }
     .aviso.demo { display: inline-block; background: rgba(244,121,32,0.2); color: var(--naranja); }
     .aviso.stale { display: inline-block; background: rgba(229,57,53,0.2); color: var(--rojo); }
+    .refdate { font-weight: 700; color: var(--naranja); margin-right: 1.2vw; }
     .vacio { text-align: center; color: #b8a496; padding: 6vh 0; font-size: 3vh; }
 </style>
 </head>
@@ -88,6 +89,7 @@
     <footer>
         <span id="actualizado">Conectando…</span>
         <span>
+            <span class="refdate" id="refdate"></span>
             <span class="aviso" id="aviso"></span>
         </span>
     </footer>
@@ -170,6 +172,9 @@
                 ('0' + d.getMinutes()).slice(-2) + ':' + ('0' + d.getSeconds()).slice(-2) +
                 ' · se refresca cada ' + Math.round(refreshMs / 1000) + ' s';
         }
+        var refdate = document.getElementById('refdate');
+        refdate.textContent = data.refDate ? ('📅 Datos de: ' + data.refDate) : '';
+
         var aviso = document.getElementById('aviso');
         if (data.stale) {
             aviso.className = 'aviso stale';
