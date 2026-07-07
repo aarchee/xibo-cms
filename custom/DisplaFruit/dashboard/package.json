@@ -1,0 +1,13 @@
+{
+  "name": "displafruit-dashboard",
+  "version": "1.0.0",
+  "description": "DisplaFruit — dashboard de producción para pantallas (lee SQL Server, se refresca solo)",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "mssql": "^11.0.1"
+  }
+}

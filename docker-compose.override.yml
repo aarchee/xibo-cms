@@ -25,5 +25,23 @@ services:
       MYSQL_DATABASE: "cms"
       APP_SERVER_IP: "${APP_SERVER_IP:-localhost}"
 
+  # DisplaFruit: dashboard de producción para pantallas (lee SQL Server; modo DEMO
+  # si MSSQL_HOST está vacío). La TV lo abre en http://APP_SERVER_IP:8090.
+  # Detalle y consultas a adaptar: custom/DisplaFruit/dashboard/README.md
+  displafruit-dashboard:
+    build: ./custom/DisplaFruit/dashboard
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    environment:
+      MSSQL_HOST: "${MSSQL_HOST:-}"
+      MSSQL_PORT: "${MSSQL_PORT:-1433}"
+      MSSQL_INSTANCE: "${MSSQL_INSTANCE:-}"
+      MSSQL_DATABASE: "${MSSQL_DATABASE:-}"
+      MSSQL_USER: "${MSSQL_USER:-}"
+      MSSQL_PASSWORD: "${MSSQL_PASSWORD:-}"
+      MSSQL_ENCRYPT: "${MSSQL_ENCRYPT:-false}"
+      REFRESH_SECONDS: "${DASHBOARD_REFRESH_SECONDS:-20}"
+
 volumes:
   displafruit_db:

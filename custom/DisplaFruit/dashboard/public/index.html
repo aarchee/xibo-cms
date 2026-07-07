@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DisplaFruit — Producción</title>
+<style>
+    /* Diseñado para TV (1080p, WebView modesto): sin librerías, sin animaciones costosas. */
+    :root {
+        --naranja: #F47920;
+        --marron: #2A1D14;
+        --marron-2: #3D2B1F;
+        --verde: #4CAF50;
+        --rojo: #E53935;
+        --texto: #FFF8F2;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+        font-family: Arial, Helvetica, sans-serif;
+        background: var(--marron);
+        color: var(--texto);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        padding: 2.2vh 3vw 1.2vh;
+    }
+    header .brand { font-size: 4.2vh; font-weight: 700; color: var(--naranja); }
+    header .brand small { color: var(--texto); font-weight: 400; }
+    header .clock { font-size: 4.2vh; font-weight: 700; font-variant-numeric: tabular-nums; }
+    header .date { font-size: 2.2vh; color: #cbb; text-align: right; }
+
+    main { flex: 1; display: flex; flex-direction: column; padding: 0 3vw 1vh; gap: 2vh; min-height: 0; }
+
+    .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2vw; }
+    .kpi {
+        background: var(--marron-2);
+        border-left: 0.6vw solid var(--naranja);
+        border-radius: 1.2vh;
+        padding: 2.4vh 1.6vw;
+    }
+    .kpi .valor { font-size: 7.5vh; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
+    .kpi .etiqueta { font-size: 2.4vh; color: #d9c9bd; margin-top: 0.8vh; }
+
+    .tabla-wrap { flex: 1; background: var(--marron-2); border-radius: 1.2vh; padding: 1.5vh 1.5vw; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 1.6vh 1vw; font-size: 3.1vh; }
+    th { color: var(--naranja); font-size: 2.4vh; text-transform: uppercase; letter-spacing: 0.05em;
+         border-bottom: 2px solid rgba(244,121,32,0.35); }
+    tr + tr td { border-top: 1px solid rgba(255,255,255,0.07); }
+    td.num { font-variant-numeric: tabular-nums; text-align: right; padding-right: 2vw; }
+    .estado { display: inline-block; padding: 0.4vh 1vw; border-radius: 99px; font-size: 2.3vh; font-weight: 700; }
+    .estado.ok { background: rgba(76,175,80,0.18); color: var(--verde); }
+    .estado.ko { background: rgba(229,57,53,0.18); color: var(--rojo); }
+
+    footer {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 1vh 3vw 1.6vh; font-size: 2vh; color: #b8a496;
+    }
+    .aviso { display: none; font-weight: 700; padding: 0.4vh 1.2vw; border-radius: 99px; font-size: 2vh; }
+    .aviso.demo { display: inline-block; background: rgba(244,121,32,0.2); color: var(--naranja); }
+    .aviso.stale { display: inline-block; background: rgba(229,57,53,0.2); color: var(--rojo); }
+    .vacio { text-align: center; color: #b8a496; padding: 6vh 0; font-size: 3vh; }
+</style>
+</head>
+<body>
+    <header>
+        <div class="brand">🍌 DisplaFruit <small id="titulo">· Producción diaria</small></div>
+        <div>
+            <div class="clock" id="reloj">--:--</div>
+            <div class="date" id="fecha"></div>
+        </div>
+    </header>
+
+    <main>
+        <div class="kpis" id="kpis"></div>
+        <div class="tabla-wrap">
+            <table>
+                <thead>
+                    <tr><th>Línea</th><th>Producto</th><th style="text-align:right;padding-right:2vw;">Kg</th><th>Estado</th></tr>
+                </thead>
+                <tbody id="lineas"><tr><td colspan="4" class="vacio">Cargando…</td></tr></tbody>
+            </table>
+        </div>
+    </main>
+
+    <footer>
+        <span id="actualizado">Conectando…</span>
+        <span>
+            <span class="aviso" id="aviso"></span>
+        </span>
+    </footer>
+
+<script>
+(function () {
+    'use strict';
+    var refreshMs = 20000;
+
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+    function fmt(n) {
+        if (typeof n !== 'number') { return esc(n); }
+        return n.toLocaleString('es-ES');
+    }
+
+    // Reloj y fecha (cada segundo; barato).
+    function tick() {
+        var d = new Date();
+        document.getElementById('reloj').textContent =
+            ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+        document.getElementById('fecha').textContent =
+            d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+    }
+    tick();
+    setInterval(tick, 1000);
+
+    function render(data) {
+        if (data.title) {
+            document.getElementById('titulo').textContent = '· ' + data.title;
+        }
+        // KPIs
+        var kpis = document.getElementById('kpis');
+        kpis.innerHTML = (data.kpis || []).map(function (k) {
+            return '<div class="kpi"><div class="valor">' + fmt(k.value) + '</div>' +
+                   '<div class="etiqueta">' + esc(k.label) + '</div></div>';
+        }).join('') || '<div class="vacio">Sin indicadores</div>';
+
+        // Tabla de líneas
+        var tbody = document.getElementById('lineas');
+        var lines = data.lines || [];
+        if (!lines.length) {
+            tbody.innerHTML = '<tr><td colspan="4" class="vacio">' +
+                (data.error ? esc(data.error) : 'Sin datos de líneas') + '</td></tr>';
+        } else {
+            tbody.innerHTML = lines.map(function (l) {
+                var enMarcha = String(l.estado || '').toLowerCase().indexOf('marcha') !== -1
+                            || String(l.estado || '').toLowerCase() === 'ok';
+                return '<tr>' +
+                    '<td>' + esc(l.linea) + '</td>' +
+                    '<td>' + esc(l.producto) + '</td>' +
+                    '<td class="num">' + fmt(l.kg) + '</td>' +
+                    '<td><span class="estado ' + (enMarcha ? 'ok' : 'ko') + '">' + esc(l.estado) + '</span></td>' +
+                '</tr>';
+            }).join('');
+        }
+
+        // Pie: hora de actualización + avisos
+        var act = document.getElementById('actualizado');
+        if (data.updatedAt) {
+            var d = new Date(data.updatedAt);
+            act.textContent = 'Actualizado a las ' + ('0' + d.getHours()).slice(-2) + ':' +
+                ('0' + d.getMinutes()).slice(-2) + ':' + ('0' + d.getSeconds()).slice(-2) +
+                ' · se refresca cada ' + Math.round(refreshMs / 1000) + ' s';
+        }
+        var aviso = document.getElementById('aviso');
+        if (data.stale) {
+            aviso.className = 'aviso stale';
+            aviso.textContent = '⚠ Sin conexión con la base de datos — mostrando el último dato';
+        } else if (data.mock) {
+            aviso.className = 'aviso demo';
+            aviso.textContent = 'MODO DEMO — datos de ejemplo';
+        } else {
+            aviso.className = 'aviso';
+            aviso.textContent = '';
+        }
+    }
+
+    function poll() {
+        fetch('/api/data', { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.refreshSeconds) { refreshMs = data.refreshSeconds * 1000; }
+                render(data);
+            })
+            .catch(function () {
+                var aviso = document.getElementById('aviso');
+                aviso.className = 'aviso stale';
+                aviso.textContent = '⚠ Sin conexión con el servidor del dashboard';
+            })
+            .then(function () { setTimeout(poll, refreshMs); });
+    }
+    poll();
+})();
+</script>
+</body>
+</html>
