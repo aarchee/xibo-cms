@@ -43,22 +43,32 @@ const IS_MOCK = MSSQL_HOST === '';
 // Notas de esquema:
 //   - dbo.ProduccionLineal : produccion confeccionada. Cantidad = kg, NroEnvases = cajas,
 //     FechaFabricacion = dia de fabricacion. Datos al dia.
+//     *** OJO: esta tabla REPITE cada pale una vez por cada linea de pedido/albaran a la
+//     que se asigna, con la MISMA Cantidad en cada fila. Sumar Cantidad "en bruto" infla
+//     el total (verificado 2026-07-07: 45.046 kg brutos vs 19.404 kg reales). Hay que
+//     DEDUPLICAR al grano fisico: 1 pale = 1 unidad = (Pale, Id_NumeroSerie), y tomar
+//     MAX(Cantidad)/MAX(NroEnvases) por unidad antes de sumar. Hoy no hay pales vacios,
+//     asi que agrupar por (Pale, Id_NumeroSerie) es seguro.
 //   - dbo.MercanciaVolcada  : materia prima volcada en linea (tiempo real, al minuto).
-//     PesoNetoVolcado = kg, NombreLinea = linea, Fecha = instante.
-//   - dbo.ExistenciasMercancia : stock actual en camara (snapshot). Palets = nº de palets.
+//     PesoNetoVolcado = kg. Cada fila es un evento de volcado real -> es aditiva (no duplica).
+//   - dbo.ExistenciasMercancia : stock actual en camara (snapshot). 1 fila = 1 UL (no duplica).
+//     Palets = nº de palets (columna decimal).
 //   - GETDATE() devuelve la hora LOCAL del servidor SQL (Europe/Madrid), asi que
 //     "CAST(... AS date) = CAST(GETDATE() AS date)" filtra correctamente "hoy".
 // ---------------------------------------------------------------------------
 
 // KPIs: UNA fila; cada columna es una tarjeta y su alias es la etiqueta mostrada.
+// Produccion/cajas -> deduplicadas por unidad fisica (ver nota de esquema arriba).
 const KPI_QUERY = process.env.DASHBOARD_KPI_QUERY || `
     SELECT
-        (SELECT CAST(ISNULL(SUM(Cantidad),0) AS int)
-           FROM dbo.ProduccionLineal
-          WHERE CAST(FechaFabricacion AS date) = CAST(GETDATE() AS date)) AS [Kg producidos hoy],
-        (SELECT CAST(ISNULL(SUM(NroEnvases),0) AS int)
-           FROM dbo.ProduccionLineal
-          WHERE CAST(FechaFabricacion AS date) = CAST(GETDATE() AS date)) AS [Cajas hoy],
+        (SELECT CAST(ISNULL(SUM(kg),0) AS int) FROM (
+            SELECT MAX(Cantidad) kg FROM dbo.ProduccionLineal
+             WHERE CAST(FechaFabricacion AS date) = CAST(GETDATE() AS date)
+             GROUP BY Pale, Id_NumeroSerie) u) AS [Kg producidos hoy],
+        (SELECT CAST(ISNULL(SUM(c),0) AS int) FROM (
+            SELECT MAX(NroEnvases) c FROM dbo.ProduccionLineal
+             WHERE CAST(FechaFabricacion AS date) = CAST(GETDATE() AS date)
+             GROUP BY Pale, Id_NumeroSerie) u) AS [Cajas hoy],
         (SELECT CAST(ISNULL(SUM(PesoNetoVolcado),0) AS int)
            FROM dbo.MercanciaVolcada
           WHERE CAST(Fecha AS date) = CAST(GETDATE() AS date)) AS [Kg volcados hoy],
@@ -66,16 +76,20 @@ const KPI_QUERY = process.env.DASHBOARD_KPI_QUERY || `
            FROM dbo.ExistenciasMercancia) AS [Palets en cámara]
 `;
 
-// Detalle: produccion de hoy por producto. Columnas dinamicas (el alias = cabecera).
+// Detalle: produccion de hoy por producto (deduplicada por unidad). Columnas dinamicas.
 const LINES_QUERY = process.env.DASHBOARD_LINES_QUERY || `
-    SELECT TOP 8
-        NombreProducto AS Producto,
-        CAST(SUM(Cantidad) AS int) AS Kg,
-        CAST(SUM(NroEnvases) AS int) AS Cajas
-    FROM dbo.ProduccionLineal
-    WHERE CAST(FechaFabricacion AS date) = CAST(GETDATE() AS date)
+    SELECT NombreProducto AS Producto,
+           CAST(SUM(kg) AS int) AS Kg,
+           CAST(SUM(c) AS int) AS Cajas
+    FROM (
+        SELECT Pale, Id_NumeroSerie, NombreProducto,
+               MAX(Cantidad) kg, MAX(NroEnvases) c
+        FROM dbo.ProduccionLineal
+        WHERE CAST(FechaFabricacion AS date) = CAST(GETDATE() AS date)
+        GROUP BY Pale, Id_NumeroSerie, NombreProducto
+    ) u
     GROUP BY NombreProducto
-    ORDER BY SUM(Cantidad) DESC
+    ORDER BY SUM(kg) DESC
 `;
 
 // ---------------------------------------------------------------------------
@@ -145,11 +159,11 @@ async function fetchFromSql() {
 }
 
 // --- Datos DEMO: mismo esquema que produccion, varian un poco en cada lectura ---
-const mockState = { kg: 38000, cajas: 2400, volcado: 19000 };
+const mockState = { kg: 19000, cajas: 1280, volcado: 20000 };
 
 function fetchMock() {
-    mockState.kg += Math.floor(Math.random() * 220);
-    if (Math.random() > 0.4) mockState.cajas += Math.floor(Math.random() * 16);
+    mockState.kg += Math.floor(Math.random() * 160);
+    if (Math.random() > 0.4) mockState.cajas += Math.floor(Math.random() * 10);
     if (Math.random() > 0.6) mockState.volcado += Math.floor(Math.random() * 120);
 
     const productos = [

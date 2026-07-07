@@ -51,6 +51,18 @@ exploró el esquema y se eligieron las tablas con datos **al día**:
 `GETDATE()` en este servidor devuelve la **hora local (Europe/Madrid)**, por lo que el filtro
 `CAST(campo AS date) = CAST(GETDATE() AS date)` acota "hoy" correctamente.
 
+### ⚠️ Deduplicación en `ProduccionLineal` (importante)
+
+`dbo.ProduccionLineal` **repite cada pale una vez por cada línea de pedido/albarán** a la que se
+asigna, con la **misma `Cantidad` en cada fila**. Sumar `Cantidad` en bruto **infla** el total
+(verificado 2026-07-07: **45.046 kg brutos vs 19.404 kg reales**; el producto GRANEL, que más se
+reparte entre pedidos, era el más afectado: 40.346 → 14.704). Por eso los KPIs de producción y la
+tabla por producto **deduplican al grano físico**: 1 pale = 1 unidad = `(Pale, Id_NumeroSerie)`,
+tomando `MAX(Cantidad)`/`MAX(NroEnvases)` por unidad antes de sumar.
+
+En cambio, `MercanciaVolcada` (cada fila = un evento de volcado) y `ExistenciasMercancia`
+(1 fila = 1 UL) **no** duplican, así que se suman directamente.
+
 ## Las dos consultas (en `server.js`, sobreescribibles por entorno)
 
 La **tabla renderiza columnas dinámicas**: el *alias* de cada columna de `LINES_QUERY` es la
