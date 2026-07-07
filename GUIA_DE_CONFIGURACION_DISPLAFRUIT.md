@@ -69,6 +69,32 @@ Las Smart TVs no entienden `localhost`: necesitan la **dirección de red del PC*
    salir el login de DisplaFruit.
 5. El PC servidor debe estar **encendido** siempre que quieras que las pantallas funcionen.
 
+### 3.1 ⚠️ TVs en otra subred / VLAN (firewall del router, NO el de Windows)
+
+Si una pantalla está en una **red/VLAN distinta** a la del servidor, el firewall de Windows no basta:
+el **router/cortafuegos de la empresa** suele bloquear el tráfico TCP entre subredes aunque el `ping`
+(ICMP) sí pase. Síntoma típico:
+
+```powershell
+# Desde el PC servidor, hacia la TV: el ping funciona...
+ping 192.168.100.193
+# ...pero el puerto está cerrado entre subredes:
+Test-NetConnection 192.168.100.193 -Port 80   # -> TcpTestSucceeded: False
+```
+
+**Solución:** pide al equipo de red una **regla de firewall** que permita, desde la subred de las TVs
+hacia el servidor: **TCP/80** (obligatorio) y **TCP/9505** (solo si quieres push en tiempo real, XMR).
+
+**Regla aplicada en la primera instalación (documentada como referencia):**
+
+| Origen (subred de las TVs) | Destino (servidor) | Puerto/protocolo | Motivo |
+|---|---|---|---|
+| `192.168.100.0/24` (WiFi de las pantallas) | `192.168.250.178` (PC `DISCEN08-PC`, red cableada) | **TCP/80** | XMDS/CMS |
+| `192.168.100.0/24` | `192.168.250.178` | **TCP/9505** *(opcional)* | XMR (push instantáneo) |
+
+> Cada **TV nueva en otra subred** necesita que su origen esté cubierto por una regla equivalente.
+> Anota aquí las reglas que vayáis añadiendo para no repetir el diagnóstico.
+
 ---
 
 ## 4. 🟢 (Escenario B) Datos para conectar pantallas: CMS Key + tiempo real (XMR)
@@ -221,7 +247,62 @@ Los comandos exactos (curl) están en `README_DISPLAFRUIT.md`, apartado 6.
 
 ---
 
-## 12. ✅ Checklist "listo para producción"
+## 12. 🔧 Solución de problemas comunes (los 3 gotchas clave)
+
+Estos tres problemas causaron **toda** la depuración al conectar la primera Smart TV real. Si algo
+no funciona, empieza por aquí — casi siempre es uno de los tres.
+
+### Gotcha 1 — ⭐ La Dirección del CMS del player NO debe llevar `/prototype`
+
+Es el fallo más común y el más confuso. En el player (Xibo for Android), la **Dirección del CMS**
+debe ser la **raíz**:
+
+> ✅ **`http://IP-SERVIDOR`**  (sin `/prototype`, sin barra final)
+> ❌ `http://IP-SERVIDOR/prototype`  ← el player se queda "conectando" para siempre
+
+**Por qué:** `/prototype` es solo el panel de administración (React). El player habla por **XMDS**
+(`/xmds.php`), que vive en la **raíz**. Si pones `/prototype`, el player llama a
+`/prototype/xmds.php` y recibía HTML de la web en vez de la respuesta del servidor.
+*(A partir de 2026-07-07 ese caso devuelve un error claro en vez de HTML, pero la dirección correcta
+sigue siendo la raíz.)*
+
+**Cómo verificar** (desde cualquier PC de la red):
+```powershell
+# Correcto: devuelve un número de versión (texto corto)
+curl "http://IP-SERVIDOR/xmds.php?what"
+# Incorrecto: devuelve una página web (HTML) o un 404 -> NO uses /prototype
+curl "http://IP-SERVIDOR/prototype/xmds.php?wsdl"
+```
+
+**Regla práctica:**
+- El display **no aparece** en *Pantallas* → problema de **URL o red** (revisa Gotcha 1 y 3).
+- El display **aparece pero pendiente** → solo falta **autorizarlo** (Pantallas → editar → Autorizado).
+
+### Gotcha 2 — Programar con "Ejecutar con la hora del CMS" o usar "Always"
+
+Al programar un evento con horario **Custom** (hora concreta), marca la opción
+**"¿Ejecutar con la hora del CMS?"**, o usa el horario **"Always"** (siempre).
+
+**Por qué:** si no lo marcas, el evento se evalúa contra el **reloj local de la Smart TV**. Si la TV
+tiene mal la hora o la zona horaria, el evento puede quedar **"Fuera de plazo"** y la pantalla se
+ve **negra** aunque el contenido esté bien publicado.
+
+- Para **contenido permanente**, usa **"Always"** — evita el problema por completo.
+- El **panel del operador** de DisplaFruit ya publica siempre con la hora del CMS (`syncTimezone`),
+  así que este gotcha solo afecta a eventos creados a mano en el CMS de administración.
+- 🔎 **Comprobado (2026-07-07):** el servidor corre en **UTC** internamente (correcto), pero el
+  ajuste de zona del CMS puede estar aún en `Europe/London`. Ponlo en **Europe/Madrid**
+  (§2) para que las horas que ves y programas sean las de España.
+
+### Gotcha 3 — TV en otra subred: regla de firewall
+
+Cada Smart TV en una **red/VLAN distinta** a la del servidor necesita una **regla de firewall** del
+router hacia el puerto **80** del servidor (y **9505** para push en tiempo real). El `ping` puede
+funcionar y el puerto seguir bloqueado. Ver **§3.1** para el diagnóstico y la regla aplicada.
+
+---
+
+## 13. ✅ Checklist "listo para producción"
 
 - [ ] Contraseña de `xibo_admin` cambiada.
 - [ ] Idioma **Español** y zona horaria **Europe/Madrid**.

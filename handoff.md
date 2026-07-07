@@ -252,13 +252,21 @@ vuelvas a sospechar de estos:
 
 ## 10. Pendiente / próximos pasos sugeridos
 
-- [ ] Documentar los gotchas de §1/§6 en `GUIA_DE_CONFIGURACION_DISPLAFRUIT.md` para el equipo.
-- [ ] Verificar zona horaria/NTP de las Smart TVs (Europe/Madrid) vs. hora del contenedor CMS.
-- [ ] (Opcional) Endurecer `web/.htaccess` para que `/prototype/xmds.php` (y cualquier `.php` real)
-      nunca lo capture la SPA — robustez ante futuros despistes con la URL.
-- [ ] (Opcional) Grupo "DisplaFruit - Todas" dinámico (ver §9.2).
-- [ ] Sustituir assets de marca por los oficiales.
-- [ ] Documentar en el repo la regla de firewall aplicada (origen/destino/puerto) para futuras TVs.
+- [x] **Documentar los gotchas de §1/§6** en `GUIA_DE_CONFIGURACION_DISPLAFRUIT.md` (2026-07-07):
+      nueva **§12 "Solución de problemas comunes"** con los 3 gotchas.
+- [x] **Endurecer `web/.htaccess`** (2026-07-07): la regla de la SPA ya **no** captura `.php` bajo
+      `/prototype/` → `/prototype/xmds.php` devuelve **404** claro en vez de HTML de React.
+      Verificado. Registrado en `CHANGELOG_DISPLAFRUIT.md` (edición de core nº 8).
+- [x] **Documentar la regla de firewall aplicada** (2026-07-07): en `GUIA_DE_CONFIGURACION` **§3.1**
+      (origen `192.168.100.0/24` → `192.168.250.178:80`, y `:9505` opcional para XMR).
+- [~] **Verificar zona horaria/NTP** (2026-07-07, parcial): el contenedor `web` corre en **UTC**
+      (correcto). ⚠️ **Hallazgo:** `defaultTimezone` sigue en `Europe/London` y `DEFAULT_LANGUAGE`
+      en `en_GB` en la instancia de dev → cambiar a **Europe/Madrid** / **Español** en Ajustes →
+      Regional (guía §2). El NTP/zona de cada Smart TV requiere acceso físico a la TV (no verificable
+      desde aquí).
+- [ ] (Opcional) Grupo "DisplaFruit - Todas" dinámico (ver §9.2). *Requiere decisión de diseño.*
+- [ ] Sustituir assets de marca por los oficiales. *Bloqueado: el usuario aún no tiene los assets
+      oficiales.*
 
 ---
 

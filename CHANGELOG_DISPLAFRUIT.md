@@ -9,6 +9,35 @@ Rama: `displafruit/main`.
 
 ---
 
+## [2026-07-07] Endurecimiento de `web/.htaccess` + documentación de pendientes
+
+Cierre de varios pendientes del `handoff.md` §10 que no requerían decisiones del usuario.
+
+### ✏️ Edición de CORE (mínima, nueva — revisar al hacer merge de upstream)
+8. **`web/.htaccess`** — la regla de la SPA de React reescribía **cualquier** `/prototype/*` que no
+   fuese fichero real a `/prototype/index.html`. Si por error se configuraba la Dirección del CMS
+   como `http://servidor/prototype`, el player pedía `/prototype/xmds.php` y recibía **HTML de React
+   en vez de un fallo SOAP** → spinner de "conectando" infinito (era la causa raíz del Problema 2 de
+   la sesión del 2026-07-01). Se añade una condición `RewriteCond %{REQUEST_URI} !\.php$` a la regla
+   de la SPA: ahora cualquier `.php` bajo `/prototype/` cae a `index.php` y devuelve un **404 claro**
+   en lugar de HTML de React. *Verificado:* `/prototype/xmds.php?wsdl` → **404** (antes 200
+   `text/html` React); `/xmds.php?what` (raíz) → 200; `/prototype/welcome` (SPA) → 200 intacto.
+
+### 📄 Documentación
+- `GUIA_DE_CONFIGURACION_DISPLAFRUIT.md` — nueva sección de **solución de problemas** (los 3 gotchas
+  del handoff §1/§6: dirección del CMS sin `/prototype`, horario "Ejecutar con la hora del CMS" /
+  "Always", firewall entre subredes) + documentación de la **regla de firewall** aplicada en la
+  primera instalación (origen `192.168.100.0/24` → `192.168.250.178:80`).
+
+### 🔎 Verificación de zona horaria (handoff §10)
+- Contenedor `web`: corre en **UTC** (`php date.timezone=UTC`), correcto — Xibo gestiona la zona en
+  la capa de aplicación vía `defaultTimezone`.
+- ⚠️ **Hallazgo:** el ajuste `defaultTimezone` seguía en `Europe/London` y `DEFAULT_LANGUAGE` en
+  `en_GB` en la instancia de dev (no se habían cambiado a Europe/Madrid como indica la guía §2). No
+  es un cambio de código: debe hacerse en **Ajustes → Regional** del CMS (documentado ya en §2).
+
+---
+
 ## [2026-07-02] Panel del operador — mejora significativa (gestión de contenido)
 
 El panel del operador pasa de "estado + publicar en todas" a una herramienta de gestión real.
