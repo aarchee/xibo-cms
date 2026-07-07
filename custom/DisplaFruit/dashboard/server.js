@@ -60,6 +60,10 @@ const TITLE = process.env.DASHBOARD_TITLE
 //     CantidadOrigen. Ademas la tabla puede repetir filas por linea de pedido/albaran, asi
 //     que se suma CantidadOrigen sobre DISTINCT (Pale, PartidaOrigen) para no duplicar.
 //     Las cajas del pale (NroEnvases) se repiten en cada fila -> MAX(NroEnvases) por pale.
+//     *** PRODUCCION vs RECEPCION: la columna Tipo distingue 'Fabricado' (producido por
+//     DisplaFruit) de 'Recepcionado' (producto recibido ya confeccionado, p.ej. el PREMIUM).
+//     "Produccion" = solo Tipo='Fabricado'. Ademas se acota a la familia
+//     'PLATANO DE CANARIAS IGP' ("solo platano", excluye ñora y otras confecciones).
 //   - dbo.MercanciaVolcada  : materia prima volcada en linea (tiempo real, al minuto).
 //     PesoNetoVolcado = kg. Cada fila es un evento de volcado real -> es aditiva (no duplica).
 //   - dbo.ExistenciasMercancia : stock actual en camara (snapshot). 1 fila = 1 UL (no duplica).
@@ -76,10 +80,12 @@ const KPI_QUERY = process.env.DASHBOARD_KPI_QUERY || `
         (SELECT CAST(ISNULL(SUM(co),0) AS int) FROM (
             SELECT DISTINCT Pale, PartidaOrigen, CantidadOrigen co
               FROM dbo.ProduccionLineal
-             WHERE CAST(FechaFabricacion AS date) = ${DAY_SQL}) t) AS [Kg producidos ${DAY_WORD}],
+             WHERE CAST(FechaFabricacion AS date) = ${DAY_SQL} AND Tipo = 'Fabricado'
+               AND NombreFamilia = 'PLATANO DE CANARIAS IGP') t) AS [Kg producidos ${DAY_WORD}],
         (SELECT CAST(ISNULL(SUM(env),0) AS int) FROM (
             SELECT Pale, MAX(NroEnvases) env FROM dbo.ProduccionLineal
-             WHERE CAST(FechaFabricacion AS date) = ${DAY_SQL}
+             WHERE CAST(FechaFabricacion AS date) = ${DAY_SQL} AND Tipo = 'Fabricado'
+               AND NombreFamilia = 'PLATANO DE CANARIAS IGP'
              GROUP BY Pale) t) AS [Cajas ${DAY_WORD}],
         (SELECT CAST(ISNULL(SUM(PesoNetoVolcado),0) AS int)
            FROM dbo.MercanciaVolcada
@@ -98,14 +104,16 @@ const LINES_QUERY = process.env.DASHBOARD_LINES_QUERY || `
         SELECT NombreProducto, SUM(co) kg FROM (
             SELECT DISTINCT Pale, PartidaOrigen, NombreProducto, CantidadOrigen co
               FROM dbo.ProduccionLineal
-             WHERE CAST(FechaFabricacion AS date) = ${DAY_SQL}) d
+             WHERE CAST(FechaFabricacion AS date) = ${DAY_SQL} AND Tipo = 'Fabricado'
+               AND NombreFamilia = 'PLATANO DE CANARIAS IGP') d
         GROUP BY NombreProducto
     ) kg
     LEFT JOIN (
         SELECT NombreProducto, SUM(env) cajas FROM (
             SELECT Pale, NombreProducto, MAX(NroEnvases) env
               FROM dbo.ProduccionLineal
-             WHERE CAST(FechaFabricacion AS date) = ${DAY_SQL}
+             WHERE CAST(FechaFabricacion AS date) = ${DAY_SQL} AND Tipo = 'Fabricado'
+               AND NombreFamilia = 'PLATANO DE CANARIAS IGP'
              GROUP BY Pale, NombreProducto) d
         GROUP BY NombreProducto
     ) ca ON kg.NombreProducto = ca.NombreProducto
