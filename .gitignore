@@ -29,6 +29,10 @@ openooh/specification.json
 tests/http-client.private.env.json
 /.phpunit.result.cache
 
+# DisplaFruit: variables de entorno reales (credenciales). El ejemplo sí se versiona
+# (.env.displafruit.example). El .env real NUNCA se commitea.
+/.env
+
 # Hide module/template translate file
 locale/moduletranslate.php
 

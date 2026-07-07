@@ -79,10 +79,8 @@
         <div class="kpis" id="kpis"></div>
         <div class="tabla-wrap">
             <table>
-                <thead>
-                    <tr><th>Línea</th><th>Producto</th><th style="text-align:right;padding-right:2vw;">Kg</th><th>Estado</th></tr>
-                </thead>
-                <tbody id="lineas"><tr><td colspan="4" class="vacio">Cargando…</td></tr></tbody>
+                <thead><tr id="cabecera"></tr></thead>
+                <tbody id="lineas"><tr><td class="vacio">Cargando…</td></tr></tbody>
             </table>
         </div>
     </main>
@@ -131,22 +129,36 @@
                    '<div class="etiqueta">' + esc(k.label) + '</div></div>';
         }).join('') || '<div class="vacio">Sin indicadores</div>';
 
-        // Tabla de líneas
-        var tbody = document.getElementById('lineas');
+        // Tabla de detalle: columnas dinámicas (las que devuelva la consulta).
         var lines = data.lines || [];
+        // Fallback de columnas si el backend no las envía: deriva de la primera fila.
+        var cols = (data.columns && data.columns.length) ? data.columns
+            : (lines.length ? Object.keys(lines[0]).map(function (k) {
+                    var s = lines[0][k];
+                    return { key: k, label: k, num: typeof s === 'number', estado: k.toLowerCase() === 'estado' };
+                }) : []);
+
+        var thead = document.getElementById('cabecera');
+        thead.innerHTML = cols.map(function (c) {
+            return '<th' + (c.num ? ' style="text-align:right;padding-right:2vw;"' : '') + '>' + esc(c.label) + '</th>';
+        }).join('');
+
+        var tbody = document.getElementById('lineas');
+        var ncol = cols.length || 1;
         if (!lines.length) {
-            tbody.innerHTML = '<tr><td colspan="4" class="vacio">' +
-                (data.error ? esc(data.error) : 'Sin datos de líneas') + '</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="' + ncol + '" class="vacio">' +
+                (data.error ? esc(data.error) : 'Sin producción registrada hoy todavía') + '</td></tr>';
         } else {
             tbody.innerHTML = lines.map(function (l) {
-                var enMarcha = String(l.estado || '').toLowerCase().indexOf('marcha') !== -1
-                            || String(l.estado || '').toLowerCase() === 'ok';
-                return '<tr>' +
-                    '<td>' + esc(l.linea) + '</td>' +
-                    '<td>' + esc(l.producto) + '</td>' +
-                    '<td class="num">' + fmt(l.kg) + '</td>' +
-                    '<td><span class="estado ' + (enMarcha ? 'ok' : 'ko') + '">' + esc(l.estado) + '</span></td>' +
-                '</tr>';
+                return '<tr>' + cols.map(function (c) {
+                    var v = l[c.key];
+                    if (c.estado) {
+                        var enMarcha = String(v || '').toLowerCase().indexOf('marcha') !== -1
+                                    || String(v || '').toLowerCase() === 'ok';
+                        return '<td><span class="estado ' + (enMarcha ? 'ok' : 'ko') + '">' + esc(v) + '</span></td>';
+                    }
+                    return '<td' + (c.num ? ' class="num"' : '') + '>' + fmt(v) + '</td>';
+                }).join('') + '</tr>';
             }).join('');
         }
 

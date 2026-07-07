@@ -34,23 +34,48 @@ const MSSQL_HOST = (process.env.MSSQL_HOST || '').trim();
 const IS_MOCK = MSSQL_HOST === '';
 
 // ---------------------------------------------------------------------------
-// Consultas (ADAPTAR al esquema real cuando se tengan las credenciales).
+// Consultas contra SQL Server (BD ReportingData de Hispatec).
+//
+// Ambas pueden sobreescribirse por entorno (DASHBOARD_KPI_QUERY /
+// DASHBOARD_LINES_QUERY) sin reconstruir la imagen. Las de aquí son el diseño
+// validado el 2026-07-07 contra el esquema real (ver README, "Origen de datos").
+//
+// Notas de esquema:
+//   - dbo.ProduccionLineal : produccion confeccionada. Cantidad = kg, NroEnvases = cajas,
+//     FechaFabricacion = dia de fabricacion. Datos al dia.
+//   - dbo.MercanciaVolcada  : materia prima volcada en linea (tiempo real, al minuto).
+//     PesoNetoVolcado = kg, NombreLinea = linea, Fecha = instante.
+//   - dbo.ExistenciasMercancia : stock actual en camara (snapshot). Palets = nº de palets.
+//   - GETDATE() devuelve la hora LOCAL del servidor SQL (Europe/Madrid), asi que
+//     "CAST(... AS date) = CAST(GETDATE() AS date)" filtra correctamente "hoy".
 // ---------------------------------------------------------------------------
 
-// KPIs: debe devolver UNA fila; cada columna es un KPI. Alias = etiqueta mostrada.
+// KPIs: UNA fila; cada columna es una tarjeta y su alias es la etiqueta mostrada.
 const KPI_QUERY = process.env.DASHBOARD_KPI_QUERY || `
     SELECT
-        0 AS [Kg producidos hoy],
-        0 AS [Cajas confeccionadas],
-        0 AS [Pedidos servidos],
-        0 AS [Líneas activas]
+        (SELECT CAST(ISNULL(SUM(Cantidad),0) AS int)
+           FROM dbo.ProduccionLineal
+          WHERE CAST(FechaFabricacion AS date) = CAST(GETDATE() AS date)) AS [Kg producidos hoy],
+        (SELECT CAST(ISNULL(SUM(NroEnvases),0) AS int)
+           FROM dbo.ProduccionLineal
+          WHERE CAST(FechaFabricacion AS date) = CAST(GETDATE() AS date)) AS [Cajas hoy],
+        (SELECT CAST(ISNULL(SUM(PesoNetoVolcado),0) AS int)
+           FROM dbo.MercanciaVolcada
+          WHERE CAST(Fecha AS date) = CAST(GETDATE() AS date)) AS [Kg volcados hoy],
+        (SELECT CAST(ISNULL(SUM(Palets),0) AS int)
+           FROM dbo.ExistenciasMercancia) AS [Palets en cámara]
 `;
 
-// Líneas/detalle: filas para la tabla. Columnas: linea, producto, kg, estado.
+// Detalle: produccion de hoy por producto. Columnas dinamicas (el alias = cabecera).
 const LINES_QUERY = process.env.DASHBOARD_LINES_QUERY || `
     SELECT TOP 8
-        '' AS linea, '' AS producto, 0 AS kg, '' AS estado
-    WHERE 1 = 0
+        NombreProducto AS Producto,
+        CAST(SUM(Cantidad) AS int) AS Kg,
+        CAST(SUM(NroEnvases) AS int) AS Cajas
+    FROM dbo.ProduccionLineal
+    WHERE CAST(FechaFabricacion AS date) = CAST(GETDATE() AS date)
+    GROUP BY NombreProducto
+    ORDER BY SUM(Cantidad) DESC
 `;
 
 // ---------------------------------------------------------------------------
@@ -86,6 +111,22 @@ function getPool() {
     return poolPromise;
 }
 
+// Deriva la descripcion de columnas de la tabla a partir de las filas devueltas:
+// el nombre/alias de columna es la cabecera; se alinea a la derecha si es numerica;
+// una columna llamada "estado" se pinta como badge verde/rojo.
+function deriveColumns(rows) {
+    if (!rows.length) { return []; }
+    return Object.keys(rows[0]).map((key) => {
+        const sample = rows.find((r) => r[key] !== null && r[key] !== undefined) || {};
+        return {
+            key: key,
+            label: key,
+            num: typeof sample[key] === 'number',
+            estado: key.toLowerCase() === 'estado',
+        };
+    });
+}
+
 async function fetchFromSql() {
     const pool = await getPool();
     const [kpiResult, linesResult] = await Promise.all([
@@ -99,35 +140,41 @@ async function fetchFromSql() {
         value: kpiRow[label],
     }));
 
-    return { kpis: kpis, lines: linesResult.recordset || [] };
+    const lines = linesResult.recordset || [];
+    return { kpis: kpis, lines: lines, columns: deriveColumns(lines) };
 }
 
-// --- Datos DEMO: varían un poco en cada lectura para que "se vea vivo" en la TV ---
-const mockState = { kg: 18240, cajas: 1520, pedidos: 46 };
+// --- Datos DEMO: mismo esquema que produccion, varian un poco en cada lectura ---
+const mockState = { kg: 38000, cajas: 2400, volcado: 19000 };
 
 function fetchMock() {
-    mockState.kg += Math.floor(Math.random() * 180);
-    if (Math.random() > 0.4) mockState.cajas += Math.floor(Math.random() * 14);
-    if (Math.random() > 0.8) mockState.pedidos += 1;
+    mockState.kg += Math.floor(Math.random() * 220);
+    if (Math.random() > 0.4) mockState.cajas += Math.floor(Math.random() * 16);
+    if (Math.random() > 0.6) mockState.volcado += Math.floor(Math.random() * 120);
 
-    const estados = ['En marcha', 'En marcha', 'En marcha', 'Parada'];
-    const productos = ['Plátano IGP 1ª', 'Plátano IGP 2ª', 'Plátano bolsa 1kg', 'Plátano granel'];
+    const productos = [
+        'PLATANO IGP GRANEL CONFECCIONADO', 'PLATANO IGP PREMIUM',
+        'PLATANO IGP PREMIUM MJ', 'PLATANO IGP EXTRA A', 'PLATANO IGP EXTRA A MJ',
+    ];
+    // Reparto ficticio de la produccion del dia entre productos (decreciente).
+    const pesos = [0.62, 0.14, 0.10, 0.09, 0.05];
+    const lines = productos.map(function (p, i) {
+        return {
+            Producto: p,
+            Kg: Math.floor(mockState.kg * pesos[i]),
+            Cajas: Math.floor(mockState.cajas * pesos[i]),
+        };
+    });
 
     return {
         kpis: [
             { label: 'Kg producidos hoy', value: mockState.kg },
-            { label: 'Cajas confeccionadas', value: mockState.cajas },
-            { label: 'Pedidos servidos', value: mockState.pedidos },
-            { label: 'Líneas activas', value: 3 },
+            { label: 'Cajas hoy', value: mockState.cajas },
+            { label: 'Kg volcados hoy', value: mockState.volcado },
+            { label: 'Palets en cámara', value: 259 },
         ],
-        lines: [1, 2, 3, 4].map(function (n, i) {
-            return {
-                linea: 'Línea ' + n,
-                producto: productos[i % productos.length],
-                kg: Math.floor(mockState.kg / 4 + Math.random() * 500),
-                estado: estados[i % estados.length],
-            };
-        }),
+        lines: lines,
+        columns: deriveColumns(lines),
     };
 }
 
@@ -150,6 +197,7 @@ async function handleData(res) {
             updatedAt: new Date().toISOString(),
             kpis: data.kpis,
             lines: data.lines,
+            columns: data.columns || [],
         };
         payload = lastGood;
     } catch (err) {
@@ -165,6 +213,7 @@ async function handleData(res) {
                 updatedAt: null,
                 kpis: [],
                 lines: [],
+                columns: [],
                 error: 'Sin conexión con la base de datos',
             };
     }

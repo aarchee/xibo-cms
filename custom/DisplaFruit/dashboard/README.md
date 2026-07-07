@@ -34,15 +34,38 @@ Si la BD deja de responder, se sirve **el último dato bueno** con el aviso
 | `DASHBOARD_KPI_QUERY` | (Opcional) Consulta de KPIs, sobreescribe la de `server.js` | — |
 | `DASHBOARD_LINES_QUERY` | (Opcional) Consulta de líneas, sobreescribe la de `server.js` | — |
 
-## Las dos consultas a adaptar (en `server.js` o por entorno)
+## Origen de datos (configurado — BD `ReportingData` de Hispatec)
 
-1. **KPI_QUERY** — debe devolver **una fila**; cada columna es una tarjeta KPI y su
-   **alias es la etiqueta** que se ve en pantalla. Ejemplo:
-   ```sql
-   SELECT SUM(kg) AS [Kg producidos hoy], COUNT(DISTINCT pedido) AS [Pedidos servidos]
-   FROM produccion WHERE fecha = CAST(GETDATE() AS date)
-   ```
-2. **LINES_QUERY** — filas para la tabla, con columnas `linea`, `producto`, `kg`, `estado`.
+El dashboard está **conectado y validado** (2026-07-07) contra la BD de reporting real. Se
+exploró el esquema y se eligieron las tablas con datos **al día**:
+
+| Tabla | Qué es | Se usa para |
+|---|---|---|
+| `dbo.ProduccionLineal` | Producción confeccionada (`Cantidad`=kg, `NroEnvases`=cajas, `FechaFabricacion`) | KPIs "Kg producidos"/"Cajas hoy" + tabla por producto |
+| `dbo.MercanciaVolcada` | Materia prima volcada en línea, en tiempo real (`PesoNetoVolcado`=kg, `NombreLinea`, `Fecha`) | KPI "Kg volcados hoy" |
+| `dbo.ExistenciasMercancia` | Stock actual en cámara (snapshot; `Palets`) | KPI "Palets en cámara" |
+
+> `dbo.InformePedidosVentaUL` (pedidos de venta) se **descartó**: sus datos terminan en 2023,
+> saldría a 0. Si más adelante se rellena, es la fuente natural para KPIs de pedidos/servido.
+
+`GETDATE()` en este servidor devuelve la **hora local (Europe/Madrid)**, por lo que el filtro
+`CAST(campo AS date) = CAST(GETDATE() AS date)` acota "hoy" correctamente.
+
+## Las dos consultas (en `server.js`, sobreescribibles por entorno)
+
+La **tabla renderiza columnas dinámicas**: el *alias* de cada columna de `LINES_QUERY` es la
+cabecera; las columnas numéricas se alinean a la derecha y una columna llamada `estado` se pinta
+como badge verde/rojo ("en marcha" / resto). Así se puede cambiar la consulta sin tocar el HTML.
+
+1. **KPI_QUERY** — devuelve **una fila**; cada columna es una tarjeta KPI y su **alias es la
+   etiqueta**. La actual suma la producción/volcado del día y el stock (ver `server.js`).
+2. **LINES_QUERY** — filas para la tabla. La actual es **producción de hoy por producto**
+   (`Producto`, `Kg`, `Cajas`). Para ver **estado de líneas** en su lugar, una consulta sobre
+   `dbo.MercanciaVolcada` agrupando por `NombreLinea` con una columna `estado` (p. ej.
+   `CASE WHEN MAX(Fecha) > DATEADD(MINUTE,-30,GETDATE()) THEN 'En marcha' ELSE 'Parada' END`).
+
+Las credenciales reales viven en el **`.env`** de la raíz (no versionado); la plantilla es
+`.env.displafruit.example`.
 
 ## Arranque
 
