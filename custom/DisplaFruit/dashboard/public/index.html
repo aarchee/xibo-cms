@@ -12,64 +12,76 @@
         --marron-2: #3D2B1F;
         --verde: #4CAF50;
         --rojo: #E53935;
+        --azul: #4FA3E0;
         --texto: #FFF8F2;
+        --tenue: #d9c9bd;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; }
     body {
         font-family: Arial, Helvetica, sans-serif;
-        background: var(--marron);
-        color: var(--texto);
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
+        background: var(--marron); color: var(--texto);
+        display: flex; flex-direction: column; overflow: hidden;
     }
     header {
         display: flex; align-items: baseline; justify-content: space-between;
-        padding: 2.2vh 3vw 1.2vh;
+        padding: 1.6vh 2.5vw 0.8vh;
     }
-    header .brand { font-size: 4.2vh; font-weight: 700; color: var(--naranja); }
-    header .brand small { color: var(--texto); font-weight: 400; }
-    header .clock { font-size: 4.2vh; font-weight: 700; font-variant-numeric: tabular-nums; }
-    header .date { font-size: 2.2vh; color: #cbb; text-align: right; }
+    header .brand { font-size: 3.6vh; font-weight: 700; color: var(--naranja); }
+    header .brand small { color: var(--texto); font-weight: 400; font-size: 2.6vh; }
+    header .clock { font-size: 3.6vh; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+    header .date { font-size: 1.9vh; color: var(--tenue); text-align: right; }
 
-    main { flex: 1; display: flex; flex-direction: column; padding: 0 3vw 1vh; gap: 2vh; min-height: 0; }
+    main { flex: 1; display: flex; flex-direction: column; padding: 0 2.5vw 1vh; gap: 1.4vh; min-height: 0; }
 
-    .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2vw; }
-    .kpi {
-        background: var(--marron-2);
-        border-left: 0.6vw solid var(--naranja);
-        border-radius: 1.2vh;
-        padding: 2.4vh 1.6vw;
-    }
-    .kpi .valor { font-size: 7.5vh; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
-    .kpi .etiqueta { font-size: 2.4vh; color: #d9c9bd; margin-top: 0.8vh; }
+    /* Banda de 3 bloques */
+    .banda { display: grid; grid-template-columns: 1fr 1.3fr 1.1fr; gap: 1.4vw; }
+    .bloque { background: var(--marron-2); border-radius: 1.2vh; padding: 1.6vh 1.4vw; display: flex; flex-direction: column; }
+    .bloque .cab { font-size: 2vh; color: var(--tenue); text-transform: uppercase; letter-spacing: 0.06em; }
+    .bloque .total { font-size: 6.4vh; font-weight: 800; line-height: 1.02; font-variant-numeric: tabular-nums; }
+    .bloque .total small { font-size: 2.4vh; font-weight: 600; color: var(--tenue); margin-left: 0.5vw; }
+    .bloque.volc { border-left: 0.6vw solid var(--azul); }
+    .bloque.conf { border-left: 0.6vw solid var(--naranja); }
+    .bloque.des  { border-left: 0.6vw solid #b9772e; }
 
-    .tabla-wrap { flex: 1; background: var(--marron-2); border-radius: 1.2vh; padding: 1.5vh 1.5vw; overflow: hidden; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { text-align: left; padding: 1.6vh 1vw; font-size: 3.1vh; }
-    th { color: var(--naranja); font-size: 2.4vh; text-transform: uppercase; letter-spacing: 0.05em;
-         border-bottom: 2px solid rgba(244,121,32,0.35); }
-    tr + tr td { border-top: 1px solid rgba(255,255,255,0.07); }
-    td.num { font-variant-numeric: tabular-nums; text-align: right; padding-right: 2vw; }
-    .estado { display: inline-block; padding: 0.4vh 1vw; border-radius: 99px; font-size: 2.3vh; font-weight: 700; }
-    .estado.ok { background: rgba(76,175,80,0.18); color: var(--verde); }
-    .estado.ko { background: rgba(229,57,53,0.18); color: var(--rojo); }
+    .partes { margin-top: 1vh; display: flex; flex-direction: column; gap: 0.7vh; }
+    .parte { display: grid; grid-template-columns: 8.5vw 1fr auto; align-items: center; gap: 0.8vw; font-size: 2.2vh; }
+    .parte .plabel { color: var(--tenue); }
+    .parte .pbar { height: 1.4vh; background: rgba(255,255,255,0.10); border-radius: 99px; overflow: hidden; }
+    .parte .pbar > i { display: block; height: 100%; background: var(--naranja); border-radius: 99px; }
+    .parte.c-consum .pbar > i { background: #e0902f; }
+    .parte.c-otros .pbar > i { background: #8a7059; }
+    .parte .pval { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+    .parte .pval b { color: var(--tenue); font-weight: 400; font-size: 1.8vh; margin-left: 0.4vw; }
+    .des .parte .pbar > i { background: #b9772e; }
 
-    footer {
-        display: flex; justify-content: space-between; align-items: center;
-        padding: 1vh 3vw 1.6vh; font-size: 2vh; color: #b8a496;
-    }
-    .aviso { display: none; font-weight: 700; padding: 0.4vh 1.2vw; border-radius: 99px; font-size: 2vh; }
+    /* Productividad */
+    .prod-wrap { display: grid; grid-template-columns: repeat(4, 1fr) 1.1fr; gap: 1.2vw; align-items: stretch; }
+    .prod { background: var(--marron-2); border-radius: 1.2vh; padding: 1.2vh 1vw; display: flex; flex-direction: column; justify-content: center; }
+    .prod .plab { font-size: 1.9vh; color: var(--tenue); text-transform: uppercase; letter-spacing: 0.04em; }
+    .prod .pv { font-size: 4.6vh; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.05; }
+    .prod .pv small { font-size: 2vh; color: var(--tenue); font-weight: 600; }
+    .prod.ok .pv { color: var(--verde); }
+    .prod.ko .pv { color: var(--rojo); }
+    .prod.obj { background: transparent; border: 2px dashed rgba(244,121,32,0.5); align-items: center; text-align: center; }
+    .prod.obj .plab { color: var(--naranja); }
+    .prod.obj .pv { font-size: 3.6vh; color: var(--naranja); }
+
+    /* Gráfico */
+    .grafico { flex: 1; background: var(--marron-2); border-radius: 1.2vh; padding: 1.2vh 1.2vw 0.6vh; display: flex; flex-direction: column; min-height: 0; }
+    .grafico .gcab { font-size: 2vh; color: var(--tenue); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.4vh; }
+    .grafico svg { flex: 1; width: 100%; height: 100%; min-height: 0; }
+
+    footer { display: flex; justify-content: space-between; align-items: center; padding: 0.6vh 2.5vw 1vh; font-size: 1.8vh; color: #b8a496; }
+    .refdate { font-weight: 700; color: var(--naranja); margin-right: 1.2vw; }
+    .aviso { display: none; font-weight: 700; padding: 0.3vh 1vw; border-radius: 99px; }
     .aviso.demo { display: inline-block; background: rgba(244,121,32,0.2); color: var(--naranja); }
     .aviso.stale { display: inline-block; background: rgba(229,57,53,0.2); color: var(--rojo); }
-    .refdate { font-weight: 700; color: var(--naranja); margin-right: 1.2vw; }
-    .vacio { text-align: center; color: #b8a496; padding: 6vh 0; font-size: 3vh; }
 </style>
 </head>
 <body>
     <header>
-        <div class="brand">🍌 DisplaFruit <small id="titulo">· Producción diaria</small></div>
+        <div class="brand">🍌 DisplaFruit <small id="titulo">· Producción</small></div>
         <div>
             <div class="clock" id="reloj">--:--</div>
             <div class="date" id="fecha"></div>
@@ -77,21 +89,37 @@
     </header>
 
     <main>
-        <div class="kpis" id="kpis"></div>
-        <div class="tabla-wrap">
-            <table>
-                <thead><tr id="cabecera"></tr></thead>
-                <tbody id="lineas"><tr><td class="vacio">Cargando…</td></tr></tbody>
-            </table>
+        <!-- Banda: volcado | confeccionado | destrío -->
+        <div class="banda">
+            <div class="bloque volc">
+                <div class="cab">Kg volcado</div>
+                <div class="total" id="volc-total">—</div>
+            </div>
+            <div class="bloque conf">
+                <div class="cab">Kg confeccionado</div>
+                <div class="total" id="conf-total">—</div>
+                <div class="partes" id="conf-partes"></div>
+            </div>
+            <div class="bloque des">
+                <div class="cab">Kg destrío</div>
+                <div class="total" id="des-total">—</div>
+                <div class="partes" id="des-partes"></div>
+            </div>
+        </div>
+
+        <!-- Productividad -->
+        <div class="prod-wrap" id="prod-wrap"></div>
+
+        <!-- Gráfico -->
+        <div class="grafico">
+            <div class="gcab">Productividad de la línea — confeccionado por hora (kg/h)</div>
+            <svg id="chart" viewBox="0 0 1000 320" preserveAspectRatio="none"></svg>
         </div>
     </main>
 
     <footer>
         <span id="actualizado">Conectando…</span>
-        <span>
-            <span class="refdate" id="refdate"></span>
-            <span class="aviso" id="aviso"></span>
-        </span>
+        <span><span class="refdate" id="refdate"></span><span class="aviso" id="aviso"></span></span>
     </footer>
 
 <script>
@@ -104,12 +132,8 @@
             return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
         });
     }
-    function fmt(n) {
-        if (typeof n !== 'number') { return esc(n); }
-        return n.toLocaleString('es-ES');
-    }
+    function fmt(n) { return (typeof n === 'number') ? n.toLocaleString('es-ES') : esc(n); }
 
-    // Reloj y fecha (cada segundo; barato).
     function tick() {
         var d = new Date();
         document.getElementById('reloj').textContent =
@@ -117,75 +141,109 @@
         document.getElementById('fecha').textContent =
             d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
     }
-    tick();
-    setInterval(tick, 1000);
+    tick(); setInterval(tick, 1000);
+
+    function renderPartes(el, partes, claseCliente) {
+        el.innerHTML = (partes || []).map(function (p) {
+            var cls = claseCliente ? (' c-' + esc(String(p.label).toLowerCase())) : '';
+            return '<div class="parte' + cls + '">' +
+                '<span class="plabel">' + esc(p.label) + '</span>' +
+                '<span class="pbar"><i style="width:' + (p.pct || 0) + '%"></i></span>' +
+                '<span class="pval">' + fmt(p.kg) + '<b>' + (p.pct || 0) + '%</b></span>' +
+            '</div>';
+        }).join('');
+    }
+
+    function renderProd(prod, objetivo) {
+        var tiles = [
+            { lab: 'Media día', v: prod.mediaDia },
+            { lab: 'Última hora', v: prod.ultimaHora },
+            { lab: 'Últimos 30′', v: prod.ultimos30 },
+            { lab: 'Últimos 10′', v: prod.ultimos10 },
+        ];
+        var html = tiles.map(function (t) {
+            var cls = (t.v >= objetivo) ? 'ok' : 'ko';
+            return '<div class="prod ' + cls + '"><div class="plab">' + esc(t.lab) + '</div>' +
+                   '<div class="pv">' + fmt(t.v) + ' <small>kg/h</small></div></div>';
+        }).join('');
+        html += '<div class="prod obj"><div class="plab">Objetivo</div>' +
+                '<div class="pv">' + fmt(objetivo) + ' <small>kg/h</small></div></div>';
+        document.getElementById('prod-wrap').innerHTML = html;
+    }
+
+    function renderChart(serie, objetivo) {
+        var svg = document.getElementById('chart');
+        var W = 1000, H = 320, pad = { l: 62, r: 24, t: 18, b: 34 };
+        if (!serie || !serie.length) {
+            svg.innerHTML = '<text x="500" y="160" fill="#b8a496" font-size="22" text-anchor="middle">Sin producción registrada</text>';
+            return;
+        }
+        var maxV = Math.max(objetivo, Math.max.apply(null, serie.map(function (s) { return s.kg; })));
+        var step = maxV > 4000 ? 2000 : (maxV > 1500 ? 1000 : 500);
+        var niceMax = Math.ceil(maxV / step) * step;
+        var iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+        var n = serie.length;
+        var xOf = function (i) { return pad.l + (n === 1 ? iw / 2 : (iw * i) / (n - 1)); };
+        var yOf = function (v) { return pad.t + ih - (ih * v) / niceMax; };
+
+        var parts = [];
+        // Rejilla horizontal + etiquetas Y
+        for (var g = 0; g <= niceMax; g += step) {
+            var y = yOf(g);
+            parts.push('<line x1="' + pad.l + '" y1="' + y + '" x2="' + (W - pad.r) + '" y2="' + y +
+                '" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>');
+            parts.push('<text x="' + (pad.l - 8) + '" y="' + (y + 5) + '" fill="#b8a496" font-size="16" text-anchor="end">' +
+                fmt(g) + '</text>');
+        }
+        // Línea de objetivo
+        var yo = yOf(objetivo);
+        parts.push('<line x1="' + pad.l + '" y1="' + yo + '" x2="' + (W - pad.r) + '" y2="' + yo +
+            '" stroke="#F47920" stroke-width="2" stroke-dasharray="7 6" opacity="0.85"/>');
+        parts.push('<text x="' + (W - pad.r) + '" y="' + (yo - 7) + '" fill="#F47920" font-size="15" text-anchor="end">objetivo ' + fmt(objetivo) + '</text>');
+
+        // Área + línea
+        var pts = serie.map(function (s, i) { return xOf(i) + ',' + yOf(s.kg); });
+        var area = 'M' + pad.l + ',' + (pad.t + ih) + ' L' + pts.join(' L') + ' L' + (xOf(n - 1)) + ',' + (pad.t + ih) + ' Z';
+        parts.push('<path d="' + area + '" fill="rgba(244,121,32,0.16)"/>');
+        parts.push('<polyline points="' + pts.join(' ') + '" fill="none" stroke="#F47920" stroke-width="3.5" stroke-linejoin="round"/>');
+        // Puntos + valores + etiquetas X
+        serie.forEach(function (s, i) {
+            var x = xOf(i), y = yOf(s.kg);
+            parts.push('<circle cx="' + x + '" cy="' + y + '" r="4.5" fill="#FFF8F2"/>');
+            parts.push('<text x="' + x + '" y="' + (y - 12) + '" fill="#FFF8F2" font-size="15" text-anchor="middle">' + fmt(s.kg) + '</text>');
+            parts.push('<text x="' + x + '" y="' + (H - 10) + '" fill="#b8a496" font-size="16" text-anchor="middle">' +
+                ('0' + s.hora).slice(-2) + 'h</text>');
+        });
+        svg.innerHTML = parts.join('');
+    }
 
     function render(data) {
-        if (data.title) {
-            document.getElementById('titulo').textContent = '· ' + data.title;
-        }
-        // KPIs
-        var kpis = document.getElementById('kpis');
-        kpis.innerHTML = (data.kpis || []).map(function (k) {
-            return '<div class="kpi"><div class="valor">' + fmt(k.value) + '</div>' +
-                   '<div class="etiqueta">' + esc(k.label) + '</div></div>';
-        }).join('') || '<div class="vacio">Sin indicadores</div>';
+        document.getElementById('titulo').textContent = '· ' + (data.title || 'Producción');
+        document.getElementById('volc-total').innerHTML = fmt(data.volcado || 0) + ' <small>kg</small>';
 
-        // Tabla de detalle: columnas dinámicas (las que devuelva la consulta).
-        var lines = data.lines || [];
-        // Fallback de columnas si el backend no las envía: deriva de la primera fila.
-        var cols = (data.columns && data.columns.length) ? data.columns
-            : (lines.length ? Object.keys(lines[0]).map(function (k) {
-                    var s = lines[0][k];
-                    return { key: k, label: k, num: typeof s === 'number', estado: k.toLowerCase() === 'estado' };
-                }) : []);
+        var conf = data.confeccionado || { total: 0, partes: [] };
+        document.getElementById('conf-total').innerHTML = fmt(conf.total || 0) + ' <small>kg</small>';
+        renderPartes(document.getElementById('conf-partes'), conf.partes, true);
 
-        var thead = document.getElementById('cabecera');
-        thead.innerHTML = cols.map(function (c) {
-            return '<th' + (c.num ? ' style="text-align:right;padding-right:2vw;"' : '') + '>' + esc(c.label) + '</th>';
-        }).join('');
+        var des = data.destrio || { total: 0, partes: [] };
+        document.getElementById('des-total').innerHTML = fmt(des.total || 0) + ' <small>kg</small>';
+        renderPartes(document.getElementById('des-partes'), des.partes, false);
 
-        var tbody = document.getElementById('lineas');
-        var ncol = cols.length || 1;
-        if (!lines.length) {
-            tbody.innerHTML = '<tr><td colspan="' + ncol + '" class="vacio">' +
-                (data.error ? esc(data.error) : 'Sin producción registrada hoy todavía') + '</td></tr>';
-        } else {
-            tbody.innerHTML = lines.map(function (l) {
-                return '<tr>' + cols.map(function (c) {
-                    var v = l[c.key];
-                    if (c.estado) {
-                        var enMarcha = String(v || '').toLowerCase().indexOf('marcha') !== -1
-                                    || String(v || '').toLowerCase() === 'ok';
-                        return '<td><span class="estado ' + (enMarcha ? 'ok' : 'ko') + '">' + esc(v) + '</span></td>';
-                    }
-                    return '<td' + (c.num ? ' class="num"' : '') + '>' + fmt(v) + '</td>';
-                }).join('') + '</tr>';
-            }).join('');
-        }
+        renderProd(data.productividad || {}, data.objetivo || 150);
+        renderChart(data.serie || [], data.objetivo || 150);
 
-        // Pie: hora de actualización + avisos
         var act = document.getElementById('actualizado');
         if (data.updatedAt) {
             var d = new Date(data.updatedAt);
             act.textContent = 'Actualizado a las ' + ('0' + d.getHours()).slice(-2) + ':' +
                 ('0' + d.getMinutes()).slice(-2) + ':' + ('0' + d.getSeconds()).slice(-2) +
-                ' · se refresca cada ' + Math.round(refreshMs / 1000) + ' s';
+                ' · cada ' + Math.round(refreshMs / 1000) + ' s';
         }
-        var refdate = document.getElementById('refdate');
-        refdate.textContent = data.refDate ? ('📅 Datos de: ' + data.refDate) : '';
-
+        document.getElementById('refdate').textContent = data.refDate ? ('📅 Datos de: ' + data.refDate) : '';
         var aviso = document.getElementById('aviso');
-        if (data.stale) {
-            aviso.className = 'aviso stale';
-            aviso.textContent = '⚠ Sin conexión con la base de datos — mostrando el último dato';
-        } else if (data.mock) {
-            aviso.className = 'aviso demo';
-            aviso.textContent = 'MODO DEMO — datos de ejemplo';
-        } else {
-            aviso.className = 'aviso';
-            aviso.textContent = '';
-        }
+        if (data.stale) { aviso.className = 'aviso stale'; aviso.textContent = '⚠ Sin conexión — último dato'; }
+        else if (data.mock) { aviso.className = 'aviso demo'; aviso.textContent = 'MODO DEMO'; }
+        else { aviso.className = 'aviso'; aviso.textContent = ''; }
     }
 
     function poll() {
