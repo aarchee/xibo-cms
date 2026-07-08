@@ -45,43 +45,41 @@ Otras fuentes (verificadas, NO duplican):
 - `dbo.InformePresencia`: fichajes (entrada/salida/tiempo), **al día**. Centro `Central`=producción.
 - Tablas OBSOLETAS (terminan en 2023, NO usar): `InformePedidosVentaUL`.
 
-## ⏳ DECISIÓN PENDIENTE PRINCIPAL: nº de operarios de línea (para KG/h por operario)
-El objetivo 150 kg/h es **por operario**. Hay que dividir la productividad de línea entre los
-operarios de la línea de confección. Problema: **la BD NO tiene la asignación a línea** (los
-trabajadores de `Central` son indistinguibles por campo: `UsoEnProduccion=1`, `Categoria=0`,
-`ActividadDefecto` vacío para todos). Opciones evaluadas:
-- Contar `Central` presentes = 35 (INFLA: incluye encargados/almacén de jornada larga).
-- Regla estructural "salida ≈ fin de línea (≤13:00)" = **27** ✅ (coincide con el real que dio el
-  usuario: 26 de línea + 1 fichaje suelto). Auto-ajustable, pero sigue siendo heurística.
-- **ELEGIDO por el usuario: una fuente diaria en Excel de SharePoint.**
+## ✅ nº de operarios de línea (para KG/h por operario) — IMPLEMENTADO (2026-07-08)
+El objetivo 150 kg/h es **por operario**; se divide la productividad de línea entre los operarios de
+confección. La BD NO tiene la asignación a línea, así que la cifra la lleva RRHH en un Excel de SharePoint.
 
-### La fuente: Excel de SharePoint (RRHH, manual)
-- URL: `https://displafruit.sharepoint.com/sites/Oficina-DisplaFruit/Documentos%20compartidos/DATOS%20BI/HORAS%20TRABAJO%20ALM%20PLATANO.xlsx`
-- Hoja **"H TRABAJO DIARIO"**. Columnas (fila 0 = cabecera; datos desde fila 1):
-  `Fecha | H PROD DISPLA | ASIS PROD | PERSONAS PROD | H ETT | ... | PERSONAS ALM | ...`
-  → **PERSONAS PROD** = columna índice **3**; `ASIS PROD` = índice 2; `Fecha` = índice 0 (fecha Excel).
-- Valores recientes leídos (copia en `Downloads/HORAS TRABAJO ALM PLATANO.xlsx`, del 08/07 09:29):
-  01/07→PERSONAS PROD 35 (ASIS 29); 02/07→35(30); 03/07→35(30); 04/07→20(15); 06/07→**32**(ASIS **28**);
-  **07/07→0 (aún sin rellenar)**.
-- ⚠️ **Se rellena con RETRASO** (RRHH, manual): el día en curso y a veces el anterior están a 0 hasta
-  que lo teclean. → Para "hoy" en vivo NO habrá dato; hay que decidir respaldo (regla estructural o
-  último día).
-- ⚠️ **A confirmar con el usuario**: ¿columna **PERSONAS PROD** (32 el 06/07) o **ASIS PROD** (28,
-  más cerca de su "27")? El usuario dijo PERSONAS PROD pero los números no cuadran del todo.
+**Decisiones cerradas con el usuario (2026-07-08):**
+- **Fuente = Excel** (no la regla SQL) con **respaldo**.
+- **Columna = `ASIS PROD`** (índice **2**), NO `PERSONAS PROD` ni `+ETT`. (`PERSONAS PROD` cuenta cabezas;
+  hay categorías separadas ETT/ALM/MANT — la línea propia es `ASIS PROD`.) Verificado: 15/06→**27**
+  (= el real que dio el usuario), 06/07→**28**. Cuadra.
 
-### Cómo leerlo automáticamente (pendiente de montar)
-El fichero **NO está sincronizado** localmente (solo copia manual en `Downloads`). La biblioteca
-SharePoint `DATOS BI` no aparece bajo `C:\Users\discen08\OneDrive - Displafruit S.A`. Vías:
-- **A (recomendada, sin Azure):** el usuario pulsa **"Sincronizar"** en la carpeta `DATOS BI` de
-  SharePoint → carpeta local auto-actualizada → montarla en el contenedor y leer el `.xlsx` por fecha
-  (parser con SheetJS `xlsx`; ya probado: `docker run node:22-alpine` + `npm i xlsx`).
-- **B:** Microsoft Graph (registro de app en Azure AD: tenant/client id/secret, `Files.Read.All`) →
-  leer la celda por fecha. Automático total pero requiere IT.
-- Dejar override manual del número por si un día falla.
+**Implementación** (`custom/DisplaFruit/dashboard/`):
+- `operarios.js` (NUEVO): lee el `.xlsx` (SheetJS), hoja `H TRABAJO DIARIO`, columna `ASIS PROD`. Cache
+  por mtime. **Respaldo**: si el día pedido está a 0/vacío → **último día anterior con dato** (RRHH
+  rellena con 1-2 días de retraso). Devuelve `{n, fuente:'excel'|'excel-previo', fecha}` o `null`.
+- `server.js`: `resolverOperarios(sqlOper)` con prioridad **1) override manual `.env DASHBOARD_OPERARIOS`
+  → 2) Excel → 3) conteo SQL `InformePresencia` → 4) sin dato**. Expone `operariosFuente`/`operariosFecha`
+  en el JSON.
+- `index.html`: muestra el nº y, entre paréntesis, la procedencia si no es el día exacto (`Excel 06/07`,
+  `estimado`, `manual`).
+- `package.json`: +`xlsx`. `docker-compose.override.yml`: monta el DIRECTORIO del Excel (env
+  `OPERARIOS_XLSX_DIR`, def. `custom/DisplaFruit/dashboard/data`) en `/data/operarios` y pasa
+  `OPERARIOS_XLSX_PATH/SHEET/COL` + `DASHBOARD_OPERARIOS`.
+- **Probado** (Node host, contra la copia real del Excel): 6/6 tests OK (día con dato, respaldo a día
+  previo, domingo→previo, sin fichero→null). Falta probar **con Docker arriba en modo SQL** (Docker
+  estaba caído esta sesión).
 
-Implementación actual de operarios (a sustituir por el Excel): `server.js` → `Q.operarios` cuenta
-`COUNT(DISTINCT Codigo)` de `InformePresencia` para el día, centro `Central` (=35). La productividad
-y la serie del gráfico se dividen entre ese número en `calcularProductividad()`.
+### ⏳ Lo único que queda: alimentar el Excel automáticamente
+El fichero **NO está sincronizado** localmente (la biblioteca SharePoint `DATOS BI` no aparece bajo
+`OneDrive - Displafruit S.A`). Hay una **copia manual** en `data/HORAS TRABAJO ALM PLATANO.xlsx`
+(gitignored) para que funcione ya. Para que sea **automático** (elegir vía con el usuario):
+- **A (recomendada, sin Azure):** pulsar **"Sincronizar"** en la carpeta `DATOS BI` de SharePoint →
+  carpeta local auto-actualizada → poner `OPERARIOS_XLSX_DIR=<esa carpeta>` en `.env` y `docker compose
+  up -d displafruit-dashboard`. Sin más código.
+- **B:** Microsoft Graph (registro de app Azure AD, `Files.Read.All`) → requiere IT; automático total.
+- Override manual `DASHBOARD_OPERARIOS=NN` en `.env` por si un día falla (ver `data/README.md`).
 
 ## Otros pendientes / cosméticos (a confirmar con el usuario)
 - ¿Incluir **Tirado** en el destrío? (el mockup solo tenía dedos/manojo/maduro; ahora se muestra Tirado).

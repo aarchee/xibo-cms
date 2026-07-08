@@ -33,6 +33,13 @@ services:
     restart: unless-stopped
     ports:
       - "8090:8080"
+    volumes:
+      # Carpeta con el Excel de RRHH (nº operarios de línea). Por defecto una carpeta del
+      # repo donde dejar una copia; en producción apunta OPERARIOS_XLSX_DIR (en .env) a la
+      # carpeta de SharePoint "DATOS BI" sincronizada localmente para que sea automático.
+      # Se monta un DIRECTORIO (no el fichero) para evitar que Docker cree un dir vacío si
+      # el fichero aún no existe. Sólo lectura.
+      - "${OPERARIOS_XLSX_DIR:-./custom/DisplaFruit/dashboard/data}:/data/operarios:ro"
     environment:
       MSSQL_HOST: "${MSSQL_HOST:-}"
       MSSQL_PORT: "${MSSQL_PORT:-1433}"
@@ -44,6 +51,13 @@ services:
       REFRESH_SECONDS: "${DASHBOARD_REFRESH_SECONDS:-20}"
       # Día de referencia: 0=hoy, -1=ayer (validación contra PowerBI).
       DASHBOARD_DAY_OFFSET: "${DASHBOARD_DAY_OFFSET:-0}"
+      # Operarios de línea (para KG/h por operario). Fuente principal = Excel RRHH; si falta
+      # el día, respaldo al último día relleno; si no hay Excel, conteo SQL. Override manual
+      # con DASHBOARD_OPERARIOS (gana sobre todo si > 0).
+      OPERARIOS_XLSX_PATH: "${OPERARIOS_XLSX_PATH:-/data/operarios/HORAS TRABAJO ALM PLATANO.xlsx}"
+      OPERARIOS_XLSX_SHEET: "${OPERARIOS_XLSX_SHEET:-H TRABAJO DIARIO}"
+      OPERARIOS_XLSX_COL: "${OPERARIOS_XLSX_COL:-2}"
+      DASHBOARD_OPERARIOS: "${DASHBOARD_OPERARIOS:-}"
 
 volumes:
   displafruit_db:

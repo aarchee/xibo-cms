@@ -233,8 +233,17 @@
         renderPartes(document.getElementById('des-partes'), des.partes, false);
 
         var ops = data.operarios || 0;
+        // Sufijo con la procedencia del recuento (validación): Excel (día), día previo, SQL, manual.
+        var fuente = data.operariosFuente || '';
+        var suf = '';
+        if (ops) {
+            if (fuente === 'excel') suf = '';
+            else if (fuente === 'excel-previo') suf = ' <small style="opacity:.7">(Excel ' + (data.operariosFecha || '') + ')</small>';
+            else if (fuente === 'sql') suf = ' <small style="opacity:.7">(estimado)</small>';
+            else if (fuente === 'manual') suf = ' <small style="opacity:.7">(manual)</small>';
+        }
         document.getElementById('prod-cab').innerHTML = 'Productividad por operario (kg/h) · <b>' +
-            (ops ? fmt(ops) + ' operarios en línea' : 'sin datos de operarios') + '</b> · objetivo ' + fmt(data.objetivo || 150);
+            (ops ? fmt(ops) + ' operarios en línea' + suf : 'sin datos de operarios') + '</b> · objetivo ' + fmt(data.objetivo || 150);
         renderProd(data.productividad || {}, data.objetivo || 150);
         renderChart(data.serie || [], data.objetivo || 150);
 

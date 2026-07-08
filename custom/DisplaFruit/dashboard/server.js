@@ -37,6 +37,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { operariosDeExcel } = require('./operarios');
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const REFRESH_SECONDS = Math.max(5, parseInt(process.env.REFRESH_SECONDS || '20', 10));
@@ -53,7 +54,29 @@ const TITLE = process.env.DASHBOARD_TITLE
     || ('Producción ' + (DAY_OFFSET === 0 ? 'diaria' : DAY_WORD + ' (validación)'));
 
 // Centro de InformePresencia que cuenta como operarios de produccion (por operario).
+// Sólo se usa como ÚLTIMO respaldo si no hay Excel ni override manual (ver resolverOperarios).
 const CENTRO_OP = process.env.DASHBOARD_CENTRO_OPERARIOS || 'Central';
+
+// Override manual del nº de operarios (gana sobre todo si > 0). Para el día que el Excel falle.
+const MANUAL_OP = parseInt(process.env.DASHBOARD_OPERARIOS || '0', 10);
+
+// Día de referencia como {y,m,d} (mismo criterio que refDateFor: fecha local + offset).
+function refDayParts() {
+    const d = new Date();
+    d.setDate(d.getDate() + DAY_OFFSET);
+    return { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() };
+}
+
+// Resuelve el nº de operarios de línea por prioridad:
+//   1) override manual (.env DASHBOARD_OPERARIOS)  2) Excel de RRHH (con respaldo al último
+//   día relleno)  3) conteo SQL de InformePresencia  4) sin dato.
+function resolverOperarios(sqlOper) {
+    if (MANUAL_OP > 0) return { n: MANUAL_OP, fuente: 'manual', fecha: null };
+    const ex = operariosDeExcel(refDayParts());
+    if (ex && ex.n > 0) return { n: ex.n, fuente: ex.fuente, fecha: ex.fecha };
+    if (sqlOper > 0) return { n: sqlOper, fuente: 'sql', fecha: null };
+    return { n: 0, fuente: 'ninguna', fecha: null };
+}
 
 // Mapa envase -> cliente (sin nombres de empresa en pantalla si se prefiere; de momento si).
 const ENVASE_CLIENTE = {
@@ -194,7 +217,9 @@ async function fetchFromSql() {
         pool.request().query(Q.now),
         pool.request().query(Q.operarios),
     ]);
-    const operarios = (rOper.recordset[0] || {}).n || 0;
+    const sqlOper = (rOper.recordset[0] || {}).n || 0;
+    const oper = resolverOperarios(sqlOper);
+    const operarios = oper.n;
 
     // Volcado
     const volcado = (rVolc.recordset[0] || {}).kg || 0;
@@ -236,6 +261,8 @@ async function fetchFromSql() {
         destrio: { total: desTotal, partes: reparto(desPartes, desTotal) },
         productividad: prod.productividad,
         operarios: operarios,
+        operariosFuente: oper.fuente,
+        operariosFecha: oper.fecha,
         serie: prod.serie,
     };
 }
@@ -269,6 +296,8 @@ function fetchMock() {
         ], des) },
         productividad: { mediaDia: 127, ultimaHora: 119, ultimos30: 152, ultimos10: 168 },
         operarios: 35,
+        operariosFuente: 'demo',
+        operariosFecha: null,
         serie: serie.map(function (s) { return { hora: s.hora, kg: Math.round(s.kg / 35) }; }),
     };
 }
@@ -311,7 +340,7 @@ async function handleData(res) {
                 volcado: 0, confeccionado: { total: 0, partes: [] },
                 destrio: { total: 0, partes: [] },
                 productividad: { mediaDia: 0, ultimaHora: 0, ultimos30: 0, ultimos10: 0 },
-                operarios: 0, serie: [],
+                operarios: 0, operariosFuente: 'ninguna', operariosFecha: null, serie: [],
             };
     }
     res.writeHead(200, {

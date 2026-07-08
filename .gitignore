@@ -40,3 +40,6 @@ locale/moduletranslate.php
 locale/reacttranslate.php
 frontend/public/locale/translations/
 frontend/coverage
+
+# DisplaFruit: Excel de RRHH con datos de operarios (no versionar)
+custom/DisplaFruit/dashboard/data/*.xlsx
