@@ -7,6 +7,7 @@ COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 
 COPY server.js ./
+COPY operarios.js ./
 COPY public ./public
 
 EXPOSE 8080

@@ -17,11 +17,19 @@ Contenedor `displafruit-dashboard` en `docker-compose.override.yml`, puerto **80
   por operario** (media día / última hora / 30' / 10' vs objetivo 150) y **gráfico de líneas** SVG.
 
 ## Estado actual
-- ✅ Panel rediseñado y funcionando con datos reales (commits `77861429c` … `3554f6819`).
+- ✅ Panel rediseñado y funcionando con datos reales (commits `77861429c` … `e49a28f06`).
+- ✅ **Operarios desde Excel VERIFICADO EN VIVO (modo SQL, 2026-07-08)**: para el 07/07 (sin dato en
+  Excel) cayó al respaldo 06/07 = **28** (`ASIS PROD`) → productividad media **161** kg/h (÷28). El
+  panel muestra "28 operarios en línea (Excel 2026-07-06)". Captura OK.
+- ✅ **Decisiones cosméticas cerradas (2026-07-08, el usuario mantiene lo que ya se mostraba)**:
+  mantener **Tirado** en destrío, mantener **Otros** en confeccionado, y **nombres** Mercadona/Consum
+  (no código de caja). → Sin cambios de código.
 - ⚙️ **Modo validación**: `DASHBOARD_DAY_OFFSET=-1` (muestra AYER, para contrastar con PowerBI, que
   cierra el día anterior). Poner a `0` para "hoy" cuando se valide.
-- Ejemplo verificado (07/07): volcado 28.941, confeccionado 25.645 (Merca 17.193/67%, Consum
-  7.911/31%, Otros 541/2%), destrío 3.271, productividad por operario 127/119/152/235 kg/h (÷35).
+- Ejemplo en vivo (07/07, 08/07 10:48): volcado 28.991, confeccionado 25.870 (Merca 17.418/67%,
+  Consum 7.911/31%, Otros 541/2%), destrío 3.917, productividad por operario 161/149/190/293 kg/h (÷28).
+- Nota tipográfica: `toLocaleString('es-ES')` NO agrupa números de 4 cifras (3917, 7911) — es la norma
+  RAE, no un bug; se dejó así.
 
 ## 🔑 Reglas de negocio descubiertas (NO re-derivar, costó mucho)
 Tabla `dbo.ProduccionLineal` (1 fila = una **partida de origen** de un palé):
@@ -81,19 +89,21 @@ El fichero **NO está sincronizado** localmente (la biblioteca SharePoint `DATOS
 - **B:** Microsoft Graph (registro de app Azure AD, `Files.Read.All`) → requiere IT; automático total.
 - Override manual `DASHBOARD_OPERARIOS=NN` en `.env` por si un día falla (ver `data/README.md`).
 
-## Otros pendientes / cosméticos (a confirmar con el usuario)
-- ¿Incluir **Tirado** en el destrío? (el mockup solo tenía dedos/manojo/maduro; ahora se muestra Tirado).
-- ¿Mantener **"Otros"** en confeccionado (cajas 16kg/GOLD) o solo Mercadona/Consum?
-- Nombres **Mercadona/Consum** puestos (el usuario dijo que quizá cambiarlos por el código de caja).
-- Pasar `DASHBOARD_DAY_OFFSET` a **0** (hoy) cuando la validación esté cerrada.
-- Cómo mostrar la TV en pantalla (kiosko a `http://IP-SERVIDOR:8090`) y abrir puerto 8090 a la subred.
-- **Push**: hay ~19 commits locales en `displafruit/main` sin subir a origin.
+## Pendientes que quedan
+- **Validación de cifras contra PowerBI** (acción del usuario): contrastar volcado/confeccionado/
+  destrío/KG-h del día -1. Si algo no cuadra, depurar.
+- **Fase 2 — automatizar el Excel** (acción del usuario en SharePoint): sincronizar `DATOS BI`,
+  poner `OPERARIOS_XLSX_DIR=<carpeta>` en `.env`. Mientras, funciona con la copia manual en `data/`.
+- **Fase 3 — producción en TV**: pasar `DASHBOARD_DAY_OFFSET` a **0** (hoy) al cerrar validación;
+  kiosko a `http://IP-SERVIDOR:8090`; abrir puerto 8090 a la subred; auto-arranque en la TV.
+- ✅ Push al día (origin `displafruit/main`, hasta `e49a28f06`).
 
 ## Cómo probar rápido
 ```powershell
-docker compose up -d --build displafruit-dashboard
+docker compose up -d --build displafruit-dashboard   # OBLIGATORIO --build tras tocar el código Node
 curl http://localhost:8090/api/data      # JSON
-# Captura (puppeteer): docker run --rm --network host --add-host=host.docker.internal:host-gateway ghcr.io/puppeteer/puppeteer ...
+# Captura (puppeteer, red del compose): docker run --rm --network xibo-cms_default \
+#   -v "$(pwd -W)/scratch_shot:/shot" ghcr.io/puppeteer/puppeteer node -e "...goto http://xibo-cms-displafruit-dashboard-1:8080..."
 ```
 Exploración SQL ad-hoc: `docker compose exec -T displafruit-dashboard node -` + script con `require('mssql')`
 (el driver ya está en el contenedor; credenciales del `.env`).
