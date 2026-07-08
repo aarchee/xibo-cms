@@ -56,6 +56,8 @@
     .des .parte .pbar > i { background: #b9772e; }
 
     /* Productividad */
+    .prod-cab { font-size: 2vh; color: var(--tenue); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: -0.4vh; }
+    .prod-cab b { color: var(--naranja); }
     .prod-wrap { display: grid; grid-template-columns: repeat(4, 1fr) 1.1fr; gap: 1.2vw; align-items: stretch; }
     .prod { background: var(--marron-2); border-radius: 1.2vh; padding: 1.2vh 1vw; display: flex; flex-direction: column; justify-content: center; }
     .prod .plab { font-size: 1.9vh; color: var(--tenue); text-transform: uppercase; letter-spacing: 0.04em; }
@@ -108,11 +110,12 @@
         </div>
 
         <!-- Productividad -->
+        <div class="prod-cab" id="prod-cab">Productividad por operario (kg/h)</div>
         <div class="prod-wrap" id="prod-wrap"></div>
 
         <!-- Gráfico -->
         <div class="grafico">
-            <div class="gcab">Productividad de la línea — confeccionado por hora (kg/h)</div>
+            <div class="gcab" id="gcab">Productividad de la línea — confeccionado por hora y operario (kg/h)</div>
             <svg id="chart" viewBox="0 0 1000 320" preserveAspectRatio="none"></svg>
         </div>
     </main>
@@ -229,6 +232,9 @@
         document.getElementById('des-total').innerHTML = fmt(des.total || 0) + ' <small>kg</small>';
         renderPartes(document.getElementById('des-partes'), des.partes, false);
 
+        var ops = data.operarios || 0;
+        document.getElementById('prod-cab').innerHTML = 'Productividad por operario (kg/h) · <b>' +
+            (ops ? fmt(ops) + ' operarios en línea' : 'sin datos de operarios') + '</b> · objetivo ' + fmt(data.objetivo || 150);
         renderProd(data.productividad || {}, data.objetivo || 150);
         renderChart(data.serie || [], data.objetivo || 150);
 

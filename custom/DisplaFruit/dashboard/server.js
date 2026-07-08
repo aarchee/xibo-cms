@@ -52,6 +52,9 @@ const DAY_WORD = DAY_OFFSET === 0 ? 'hoy' : (DAY_OFFSET === -1 ? 'ayer' : ('día
 const TITLE = process.env.DASHBOARD_TITLE
     || ('Producción ' + (DAY_OFFSET === 0 ? 'diaria' : DAY_WORD + ' (validación)'));
 
+// Centro de InformePresencia que cuenta como operarios de produccion (por operario).
+const CENTRO_OP = process.env.DASHBOARD_CENTRO_OPERARIOS || 'Central';
+
 // Mapa envase -> cliente (sin nombres de empresa en pantalla si se prefiere; de momento si).
 const ENVASE_CLIENTE = {
     'CAJA LOGIFRUIT CODIGO 624': 'Mercadona',
@@ -88,6 +91,9 @@ const Q = {
               FROM dbo.ProduccionLineal WHERE ${CONF}) d
         GROUP BY Pale`,
     now: `SELECT GETDATE() serverNow`,
+    // Operarios de produccion presentes ese dia (para la productividad por operario).
+    operarios: `SELECT COUNT(DISTINCT Codigo) n FROM dbo.InformePresencia
+        WHERE CAST(Fecha AS date) = ${DAY_SQL} AND Centro = '${CENTRO_OP.replace(/'/g, "''")}'`,
 };
 
 // ---------------------------------------------------------------------------
@@ -128,8 +134,10 @@ function reparto(filas, total) {
     }));
 }
 
-// Calcula productividad (KG/h) y serie horaria a partir de los pales confeccionados.
-function calcularProductividad(pales, serverNow) {
+// Calcula productividad (KG/h POR OPERARIO) y serie horaria a partir de los pales
+// confeccionados. Se divide entre `operarios` (operarios de produccion presentes ese dia).
+function calcularProductividad(pales, serverNow, operarios) {
+    const div = operarios > 0 ? operarios : 1;
     const conTiempo = pales
         .filter((p) => p.finish)
         .map((p) => ({ kg: p.kg || 0, t: new Date(p.finish).getTime() }));
@@ -152,10 +160,10 @@ function calcularProductividad(pales, serverNow) {
     const rate = (mins, mult) => {
         const cut = ref - mins * 60000;
         const kg = conTiempo.filter((p) => p.t > cut).reduce((s, p) => s + p.kg, 0);
-        return Math.round(kg * mult);
+        return Math.round((kg * mult) / div);
     };
 
-    // Serie por hora (hora local del servidor = getUTCHours porque mssql envuelve en UTC).
+    // Serie por hora (kg/h por operario). getUTCHours = hora local (mssql envuelve en UTC).
     const buckets = {};
     conTiempo.forEach((p) => {
         const h = new Date(p.t).getUTCHours();
@@ -163,11 +171,11 @@ function calcularProductividad(pales, serverNow) {
     });
     const serie = Object.keys(buckets)
         .map(Number).sort((a, b) => a - b)
-        .map((h) => ({ hora: h, kg: Math.round(buckets[h]) }));
+        .map((h) => ({ hora: h, kg: Math.round(buckets[h] / div) }));
 
     return {
         productividad: {
-            mediaDia: horas ? Math.round(totalConf / horas) : totalConf,
+            mediaDia: horas ? Math.round(totalConf / horas / div) : Math.round(totalConf / div),
             ultimaHora: rate(60, 1),
             ultimos30: rate(30, 2),
             ultimos10: rate(10, 6),
@@ -178,13 +186,15 @@ function calcularProductividad(pales, serverNow) {
 
 async function fetchFromSql() {
     const pool = await getPool();
-    const [rVolc, rEnv, rDes, rPales, rNow] = await Promise.all([
+    const [rVolc, rEnv, rDes, rPales, rNow, rOper] = await Promise.all([
         pool.request().query(Q.volcado),
         pool.request().query(Q.confEnvase),
         pool.request().query(Q.destrio),
         pool.request().query(Q.pales),
         pool.request().query(Q.now),
+        pool.request().query(Q.operarios),
     ]);
+    const operarios = (rOper.recordset[0] || {}).n || 0;
 
     // Volcado
     const volcado = (rVolc.recordset[0] || {}).kg || 0;
@@ -218,13 +228,14 @@ async function fetchFromSql() {
             .map((t) => ({ label: t, kg: porTipo[t] })));
 
     const serverNow = (rNow.recordset[0] || {}).serverNow || new Date().toISOString();
-    const prod = calcularProductividad(rPales.recordset || [], serverNow);
+    const prod = calcularProductividad(rPales.recordset || [], serverNow, operarios);
 
     return {
         volcado: volcado,
         confeccionado: { total: confTotal, partes: reparto(confPartes, confTotal) },
         destrio: { total: desTotal, partes: reparto(desPartes, desTotal) },
         productividad: prod.productividad,
+        operarios: operarios,
         serie: prod.serie,
     };
 }
@@ -256,8 +267,9 @@ function fetchMock() {
             { label: 'Dedos', kg: Math.round(des * 0.4) }, { label: 'Manojo', kg: Math.round(des * 0.3) },
             { label: 'Maduro', kg: Math.round(des * 0.2) }, { label: 'Tirado', kg: Math.round(des * 0.1) },
         ], des) },
-        productividad: { mediaDia: 4200, ultimaHora: 3800, ultimos30: 4600, ultimos10: 5200 },
-        serie: serie,
+        productividad: { mediaDia: 127, ultimaHora: 119, ultimos30: 152, ultimos10: 168 },
+        operarios: 35,
+        serie: serie.map(function (s) { return { hora: s.hora, kg: Math.round(s.kg / 35) }; }),
     };
 }
 
@@ -299,7 +311,7 @@ async function handleData(res) {
                 volcado: 0, confeccionado: { total: 0, partes: [] },
                 destrio: { total: 0, partes: [] },
                 productividad: { mediaDia: 0, ultimaHora: 0, ultimos30: 0, ultimos10: 0 },
-                serie: [],
+                operarios: 0, serie: [],
             };
     }
     res.writeHead(200, {
