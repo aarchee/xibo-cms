@@ -4,9 +4,25 @@
 > descubierto (lo más valioso), las consultas clave y las **decisiones pendientes**. Para retomar:
 > "continúa con el dashboard de producción de DisplaFruit".
 
-## 🔴 CAMBIO DE BASE DE DATOS EN CURSO (2026-07-09) — LEER PRIMERO
-ReportingData (Hispatec) **va con retraso** (hoy suele estar a 0). Se va a cambiar la conexión a la
-BD de **control de línea (MES)**, que está **viva al minuto**:
+## ✅ CAMBIO DE BASE DE DATOS — HECHO (2026-07-09) — LEER PRIMERO
+El dashboard **YA lee de la BD nueva** (`.env` apunta a 192.168.250.237 / `DisplaFruit`, offset 0 = HOY,
+en vivo). Verificado E2E con captura. Confeccionado (Merca/Consum) + destrío (cartón) + productividad
+salen en vivo; **VOLCADO oculto** (banda no se muestra: `volcado:null`), pendiente de fuente.
+
+- **Confeccionado** = idConfeccion 1(Consum)+2(Mercadona); **Destrío** = 3,4,5,6 (cartón Doniz17/16/10/9kg,
+  el destrío se encaja en cartón genérico); 7(Banana) ignorado. `server.js` reescrito: consultas
+  `porConfeccion` (SUM pesoNeto por idConfeccion) + `cajas` (producto bueno con instante → productividad).
+- **Operarios**: sigue del Excel de RRHH (28, respaldo día previo). Se quitó el respaldo SQL
+  (InformePresencia no está en esta BD).
+- `getPool()` corregido: instancia con nombre y puerto son **mutuamente excluyentes** en tedious → con
+  `MSSQL_INSTANCE` no se pasa `port` (SQL Browser resuelve). Frontend: banda de volcado se oculta y el
+  grid pasa a 2 columnas cuando `volcado==null`.
+- **Comparación 07/07**: confeccionado nuevo (Merca+Consum) 26.200 vs ReportingData 25.870 (**+1,3%** ✅).
+- Reproducir/adaptar: cambiar `.env` (credenciales fuera de git). Para volver a ReportingData, ver el
+  bloque comentado del `.env`.
+
+### Contexto del servidor MES (referencia)
+BD de **control de línea (MES)**, viva al minuto:
 - **Servidor:** `srv-produccion\sqlexpress` = **192.168.250.237** (instancia con nombre `sqlexpress`;
   conecta desde Docker vía SQL Browser con `options.instanceName:'sqlexpress'`). Usuario **solo-lectura**
   `usrexterno` (contraseña en el `.env`, gitignored). BD: **`DisplaFruit`** (única BD de usuario del servidor).
@@ -23,34 +39,31 @@ BD de **control de línea (MES)**, que está **viva al minuto**:
 - **Frescura verificada:** MAX(fechaHora) de todas las tablas = ahora mismo (al minuto). Confeccionado de
   HOY se ve subir en vivo. ReportingData hoy = 0.
 
-### ⚠️ Lo que la BD nueva NO tiene (PENDIENTE — el usuario lo investiga en planta)
-- **VOLCADO (kg):** `Volcados` no guarda peso. No hay kg de volcado en esta BD.
-- **DESTRÍO:** no existe ningún idConfeccion de destrío (en 20 días solo salen 1,2,4,5). No está aquí.
-- → **Decisión del usuario (2026-07-09): "lo investigo con producción"** (dónde se registran volcado y
-  destrío: ¿otra BD/servidor/scada de recepción?). Retomar cuando dé la fuente. Opciones si no aparece:
-  híbrido (volcado/destrío de ReportingData + confeccionado/productividad de la nueva) o rehacer el panel
-  sin esos dos KPIs.
+### ⚠️ VOLCADO — único KPI pendiente (bloqueado por permisos)
+- **VOLCADO (kg):** `Volcados` no guarda peso; el peso real está en **tablas ocultas** a las que el
+  usuario read-only `usrexterno` NO tiene acceso. **Aparcado** hasta poder ver más tablas. En el panel,
+  la banda de volcado se **oculta** (`volcado:null`).
+- **DESTRÍO — RESUELTO:** el usuario aclaró (2026-07-09) que el destrío **son los cartones**
+  (idConfeccion 3,4,5,6): la segunda calidad se encaja en cartón genérico. Ya se muestra.
 
-### Confeccionado: nueva vs ReportingData (usuario: "ver ambos y decidir luego")
-Comparado día a día (últimos 10 días): **Mercadona y Consum casi coinciden (±5%)** entre ambas BD;
-**toda la divergencia es "Otros"=cartón genérico**, que ReportingData excluía por su filtro de familia
-"PLATANO DE CANARIAS IGP" (a menudo 0) y la nueva sí cuenta (200-6000 kg/día, producción real). Solo
-Merca+Consum: total nuevo vs ReportingData dentro de **±4%**. → Decisión abierta: **¿mostrar "Otros"
-(cartón) o no?**. Ejemplo 07/07: nueva 18389/7811/2872=29072 vs Reporting 17418/8055/541=26014.
-- Consulta de confeccionado nuevo: `SELECT idConfeccion, SUM(pesoNeto) FROM [dbo].[Produccion.CajasConfeccionadas.Info] WHERE CAST(fechaHoraInspeccion AS date)=@dia GROUP BY idConfeccion` (mapear 2→Merca, 1→Consum, resto→Otros).
-- **NO se ha cambiado aún la conexión del dashboard** (sigue en ReportingData). Cambiar sólo cuando se
-  resuelva volcado/destrío.
+### Confeccionado — RESUELTO: "verdad de planta", mostrando solo marca
+El usuario aclaró que el cartón NO es "Otros" de confeccionado, es **destrío**. Por tanto CONFECCIONADO =
+solo **Mercadona(2)+Consum(1)** (producto de marca), y el cartón va a la banda de destrío. Con eso, el
+confeccionado nuevo **cuadra con ReportingData ±1,3%** (07/07: 26.200 vs 25.870) y además en vivo.
+- Consulta: `SELECT idConfeccion, SUM(pesoNeto) FROM [dbo].[Produccion.CajasConfeccionadas.Info] WHERE CAST(fechaHoraInspeccion AS date)=@dia GROUP BY idConfeccion` (1→Consum, 2→Mercadona = confeccionado; 3-6 = destrío).
 
 ## Qué es
 Micro-servicio Node (sin framework) en `custom/DisplaFruit/dashboard/` que muestra en una TV la
-producción diaria de la línea de plátano, leyendo **SQL Server** (BD `ReportingData` de Hispatec).
+producción diaria de la línea de plátano, leyendo **SQL Server** (BD `DisplaFruit` de control de línea
+en `srv-produccion\sqlexpress`; ver el bloque del cambio de BD arriba).
 Contenedor `displafruit-dashboard` en `docker-compose.override.yml`, puerto **8090**
 (http://localhost:8090). Arranca con `docker compose up -d`.
 
-- Credenciales y config en **`.env`** de la raíz (gitignored, en disco): `MSSQL_HOST=192.168.250.248`,
-  `MSSQL_DATABASE=ReportingData`, `MSSQL_USER=general` (solo lectura), `DASHBOARD_DAY_OFFSET=-1`.
-- Estructura del panel (según mockup del usuario): banda **KG VOLCADO | KG CONFECCIONADO
-  (Mercadona/Consum/Otros) | KG DESTRÍO (dedos/manojo/maduro/tirado)**, fila de **productividad
+- Credenciales y config en **`.env`** de la raíz (gitignored, en disco): `MSSQL_HOST=192.168.250.237`,
+  `MSSQL_INSTANCE=sqlexpress`, `MSSQL_DATABASE=DisplaFruit`, `MSSQL_USER=usrexterno` (solo lectura),
+  `DASHBOARD_DAY_OFFSET=0` (hoy/live).
+- Estructura del panel (tras el cambio de BD): banda **KG CONFECCIONADO (Mercadona/Consum) | KG DESTRÍO
+  (cartón Doniz17/16/10/9kg)** — la banda de **VOLCADO se oculta** (pendiente) —, fila de **productividad
   por operario** (media día / última hora / 30' / 10' vs objetivo 150) y **gráfico de líneas** SVG.
 
 ## Estado actual

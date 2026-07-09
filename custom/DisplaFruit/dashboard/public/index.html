@@ -34,8 +34,11 @@
 
     main { flex: 1; display: flex; flex-direction: column; padding: 0 2.5vw 1vh; gap: 1.4vh; min-height: 0; }
 
-    /* Banda de 3 bloques */
+    /* Banda de bloques */
     .banda { display: grid; grid-template-columns: 1fr 1.3fr 1.1fr; gap: 1.4vw; }
+    /* Sin volcado (pendiente de fuente): quedan confeccionado + destrío */
+    .banda.sin-volc { grid-template-columns: 1.4fr 1fr; }
+    .banda.sin-volc .bloque.volc { display: none; }
     .bloque { background: var(--marron-2); border-radius: 1.2vh; padding: 1.6vh 1.4vw; display: flex; flex-direction: column; }
     .bloque .cab { font-size: 2vh; color: var(--tenue); text-transform: uppercase; letter-spacing: 0.06em; }
     .bloque .total { font-size: 6.4vh; font-weight: 800; line-height: 1.02; font-variant-numeric: tabular-nums; }
@@ -91,8 +94,8 @@
     </header>
 
     <main>
-        <!-- Banda: volcado | confeccionado | destrío -->
-        <div class="banda">
+        <!-- Banda: volcado (oculto si pendiente) | confeccionado | destrío -->
+        <div class="banda" id="banda">
             <div class="bloque volc">
                 <div class="cab">Kg volcado</div>
                 <div class="total" id="volc-total">—</div>
@@ -222,7 +225,14 @@
 
     function render(data) {
         document.getElementById('titulo').textContent = '· ' + (data.title || 'Producción');
-        document.getElementById('volc-total').innerHTML = fmt(data.volcado || 0) + ' <small>kg</small>';
+        // Volcado: si viene null, no hay fuente todavía -> se oculta la banda (2 columnas).
+        var banda = document.getElementById('banda');
+        if (data.volcado == null) {
+            banda.classList.add('sin-volc');
+        } else {
+            banda.classList.remove('sin-volc');
+            document.getElementById('volc-total').innerHTML = fmt(data.volcado) + ' <small>kg</small>';
+        }
 
         var conf = data.confeccionado || { total: 0, partes: [] };
         document.getElementById('conf-total').innerHTML = fmt(conf.total || 0) + ' <small>kg</small>';

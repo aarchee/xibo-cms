@@ -7,27 +7,24 @@
  *   GET /healthz     -> 200 si el proceso vive
  *
  * Estructura del panel (ver public/index.html):
- *   - Banda: KG VOLCADO | KG CONFECCIONADO (Mercadona/Consum) | KG DESTRIO (dedos/manojo/maduro)
+ *   - Banda: KG CONFECCIONADO (Mercadona/Consum) | KG DESTRIO (cartón). VOLCADO oculto (pendiente).
  *   - Productividad: KG/h en MEDIA DIA / ultima hora / ultimos 30' / ultimos 10', vs objetivo.
  *   - Grafico de lineas: confeccionado por hora (productividad de la linea).
  *
- * Reglas de negocio (BD ReportingData de Hispatec), confirmadas 2026-07-07/08:
- *   - dbo.ProduccionLineal: 1 fila = una PARTIDA de origen de un pale. El PESO del pale se
- *     obtiene sumando CantidadOrigen de sus partidas (NO la columna Cantidad, denormalizada
- *     y a veces mal). Se deduplica por DISTINCT (Pale, PartidaOrigen) por si hay filas
- *     repetidas por pedido/albaran.
- *   - PRODUCCION = solo Tipo='Fabricado' (lo producido por DisplaFruit; 'Recepcionado' es
- *     producto recibido ya confeccionado, NO cuenta) y familia 'PLATANO DE CANARIAS IGP'.
- *   - CONFECCIONADO = producto bueno (NombreProducto NO contiene 'DESTRIO'); se reparte por
- *     NombreEnvase -> cliente (Mercadona = CAJA LOGIFRUIT CODIGO 624; Consum = CAJA PLATANO
- *     PLASTICO CONSUM E156; el resto -> Otros).
- *   - DESTRIO = NombreProducto contiene 'DESTRIO' (dedos/manojo/maduro/tirado).
- *   - dbo.MercanciaVolcada: materia prima volcada (kg = PesoNetoVolcado). Aditiva.
- *   - CLI501_FechaHoraFinPalet: instante de fin del pale -> KG/h y grafico horario.
- *   - GETDATE() devuelve hora local del servidor (Europe/Madrid).
+ * Reglas de negocio (BD de línea 'DisplaFruit' en srv-produccion\sqlexpress; viva al minuto),
+ * confirmadas 2026-07-09:
+ *   - [dbo].[Produccion.CajasConfeccionadas.Info]: 1 fila = una CAJA (pesoNeto) con idConfeccion
+ *     y fechaHoraInspeccion. El KG de cada categoría = SUM(pesoNeto) por idConfeccion y día.
+ *   - Catálogo [dbo].[Cliente.Confecciones]: idConfeccion 1=CONSUM, 2=MERCADONA (producto de
+ *     marca = CONFECCIONADO); 3=Cartón Doniz 17kg, 4=Cartón 16kg, 5=Cartón 10kg, 6=Cartón 9kg
+ *     (segunda calidad en cartón genérico = DESTRIO); 7=Banana (no se produce, se ignora).
+ *   - PRODUCTIVIDAD/gráfico: cajas de producto bueno (idConfeccion 1,2) con fechaHoraInspeccion.
+ *   - VOLCADO (kg) y el desglose de destrío por calidad (dedos/manojo/...) NO están en esta BD
+ *     (tablas de recepción sin acceso para el usuario read-only). Volcado va a null -> banda oculta.
+ *   - GETDATE() devuelve hora local del servidor (Europe/Madrid); los datetime se guardan en local.
  *
  * Dia de referencia: DASHBOARD_DAY_OFFSET (0=hoy, -1=ayer). En modo pasado, las ventanas
- * "ultimos X min" se calculan respecto al ultimo pale fabricado ese dia (no la hora actual).
+ * "ultimos X min" se calculan respecto a la ultima caja de ese dia (no la hora actual).
  *
  * Robustez: si una consulta falla, se sirve el ultimo dato bueno marcado "stale".
  */
@@ -53,10 +50,6 @@ const DAY_WORD = DAY_OFFSET === 0 ? 'hoy' : (DAY_OFFSET === -1 ? 'ayer' : ('día
 const TITLE = process.env.DASHBOARD_TITLE
     || ('Producción ' + (DAY_OFFSET === 0 ? 'diaria' : DAY_WORD + ' (validación)'));
 
-// Centro de InformePresencia que cuenta como operarios de produccion (por operario).
-// Sólo se usa como ÚLTIMO respaldo si no hay Excel ni override manual (ver resolverOperarios).
-const CENTRO_OP = process.env.DASHBOARD_CENTRO_OPERARIOS || 'Central';
-
 // Override manual del nº de operarios (gana sobre todo si > 0). Para el día que el Excel falle.
 const MANUAL_OP = parseInt(process.env.DASHBOARD_OPERARIOS || '0', 10);
 
@@ -69,54 +62,35 @@ function refDayParts() {
 
 // Resuelve el nº de operarios de línea por prioridad:
 //   1) override manual (.env DASHBOARD_OPERARIOS)  2) Excel de RRHH (con respaldo al último
-//   día relleno)  3) conteo SQL de InformePresencia  4) sin dato.
-function resolverOperarios(sqlOper) {
+//   día relleno)  3) sin dato. (La BD de línea no tiene fichajes -> no hay respaldo SQL.)
+function resolverOperarios() {
     if (MANUAL_OP > 0) return { n: MANUAL_OP, fuente: 'manual', fecha: null };
     const ex = operariosDeExcel(refDayParts());
     if (ex && ex.n > 0) return { n: ex.n, fuente: ex.fuente, fecha: ex.fecha };
-    if (sqlOper > 0) return { n: sqlOper, fuente: 'sql', fecha: null };
     return { n: 0, fuente: 'ninguna', fecha: null };
 }
 
-// Mapa envase -> cliente (sin nombres de empresa en pantalla si se prefiere; de momento si).
-const ENVASE_CLIENTE = {
-    'CAJA LOGIFRUIT CODIGO 624': 'Mercadona',
-    'CAJA PLATANO PLASTICO CONSUM E156': 'Consum',
-};
-function clienteDeEnvase(envase) {
-    return ENVASE_CLIENTE[(envase || '').trim()] || 'Otros';
-}
-function nombreDestrio(prod) {
-    const s = (prod || '').replace('PLATANO IGP DESTRIO ', '').trim();
-    return s ? (s.charAt(0) + s.slice(1).toLowerCase()) : 'Destrío';
-}
+// --- Mapa idConfeccion -> categoría (BD de línea, tabla Cliente.Confecciones) ---
+// CONFECCIONADO (producto de marca) = Consum(1) + Mercadona(2).
+// DESTRÍO (segunda calidad, encajada en cartón genérico) = idConfeccion 3,4,5,6.
+// idConfeccion 7 (Banana) no se produce (0 en 30 días); se ignora.
+const CONF_CLIENTE = { 1: 'Consum', 2: 'Mercadona' };
+const DESTRIO_LABEL = { 3: 'Doniz 17kg', 4: 'Cartón 16kg', 5: 'Cartón 10kg', 6: 'Cartón 9kg' };
+const ORDEN_CONF = ['Mercadona', 'Consum'];
+const ORDEN_DES = ['Doniz 17kg', 'Cartón 16kg', 'Cartón 10kg', 'Cartón 9kg'];
 
-// --- Filtros SQL reutilizables ---
-const FAB = `CAST(FechaFabricacion AS date) = ${DAY_SQL} AND Tipo='Fabricado' AND NombreFamilia='PLATANO DE CANARIAS IGP'`;
-const CONF = `${FAB} AND NombreProducto NOT LIKE '%DESTRIO%'`;
-const DES = `${FAB} AND NombreProducto LIKE '%DESTRIO%'`;
-const VOLC = `CAST(Fecha AS date) = ${DAY_SQL}`;
-
-// --- Consultas ---
+// --- Consultas (BD DisplaFruit; nombres de tabla con puntos -> corchetes) ---
 const Q = {
-    volcado: `SELECT CAST(ISNULL(SUM(PesoNetoVolcado),0) AS int) kg FROM dbo.MercanciaVolcada WHERE ${VOLC}`,
-    confEnvase: `SELECT NombreEnvase, CAST(SUM(co) AS int) kg
-        FROM (SELECT DISTINCT Pale, PartidaOrigen, NombreEnvase, CantidadOrigen co
-              FROM dbo.ProduccionLineal WHERE ${CONF}) d
-        GROUP BY NombreEnvase`,
-    destrio: `SELECT NombreProducto, CAST(SUM(co) AS int) kg
-        FROM (SELECT DISTINCT Pale, PartidaOrigen, NombreProducto, CantidadOrigen co
-              FROM dbo.ProduccionLineal WHERE ${DES}) d
-        GROUP BY NombreProducto`,
-    // Pales confeccionados con su instante de fin y su peso (suma de partidas).
-    pales: `SELECT Pale, MAX(CLI501_FechaHoraFinPalet) finish, SUM(co) kg
-        FROM (SELECT DISTINCT Pale, PartidaOrigen, CLI501_FechaHoraFinPalet, CantidadOrigen co
-              FROM dbo.ProduccionLineal WHERE ${CONF}) d
-        GROUP BY Pale`,
+    // pesoNeto por idConfeccion del día -> confeccionado (1,2) y destrío (3-6).
+    porConfeccion: `SELECT i.idConfeccion, CAST(SUM(i.pesoNeto) AS int) kg
+        FROM [dbo].[Produccion.CajasConfeccionadas.Info] i
+        WHERE CAST(i.fechaHoraInspeccion AS date) = ${DAY_SQL}
+        GROUP BY i.idConfeccion`,
+    // Cajas de producto bueno (Merca+Consum) con su instante -> productividad y serie horaria.
+    cajas: `SELECT i.fechaHoraInspeccion finish, i.pesoNeto kg
+        FROM [dbo].[Produccion.CajasConfeccionadas.Info] i
+        WHERE CAST(i.fechaHoraInspeccion AS date) = ${DAY_SQL} AND i.idConfeccion IN (1,2)`,
     now: `SELECT GETDATE() serverNow`,
-    // Operarios de produccion presentes ese dia (para la productividad por operario).
-    operarios: `SELECT COUNT(DISTINCT Codigo) n FROM dbo.InformePresencia
-        WHERE CAST(Fecha AS date) = ${DAY_SQL} AND Centro = '${CENTRO_OP.replace(/'/g, "''")}'`,
 };
 
 // ---------------------------------------------------------------------------
@@ -128,9 +102,9 @@ let poolPromise = null;
 function getPool() {
     if (!sql) { sql = require('mssql'); }
     if (!poolPromise) {
-        poolPromise = new sql.ConnectionPool({
+        const instance = process.env.MSSQL_INSTANCE || '';
+        const cfg = {
             server: MSSQL_HOST,
-            port: parseInt(process.env.MSSQL_PORT || '1433', 10),
             database: process.env.MSSQL_DATABASE || '',
             user: process.env.MSSQL_USER || '',
             password: process.env.MSSQL_PASSWORD || '',
@@ -140,9 +114,16 @@ function getPool() {
             options: {
                 encrypt: (process.env.MSSQL_ENCRYPT || 'false') === 'true',
                 trustServerCertificate: (process.env.MSSQL_TRUST_CERT || 'true') === 'true',
-                instanceName: process.env.MSSQL_INSTANCE || undefined,
             },
-        }).connect();
+        };
+        // Instancia con nombre (p.ej. SQLEXPRESS) y puerto son mutuamente excluyentes en tedious:
+        // con instancia se resuelve el puerto vía SQL Browser (UDP 1434).
+        if (instance) {
+            cfg.options.instanceName = instance;
+        } else {
+            cfg.port = parseInt(process.env.MSSQL_PORT || '1433', 10);
+        }
+        poolPromise = new sql.ConnectionPool(cfg).connect();
         poolPromise.catch(() => { poolPromise = null; });
     }
     return poolPromise;
@@ -209,54 +190,40 @@ function calcularProductividad(pales, serverNow, operarios) {
 
 async function fetchFromSql() {
     const pool = await getPool();
-    const [rVolc, rEnv, rDes, rPales, rNow, rOper] = await Promise.all([
-        pool.request().query(Q.volcado),
-        pool.request().query(Q.confEnvase),
-        pool.request().query(Q.destrio),
-        pool.request().query(Q.pales),
+    const [rConf, rCajas, rNow] = await Promise.all([
+        pool.request().query(Q.porConfeccion),
+        pool.request().query(Q.cajas),
         pool.request().query(Q.now),
-        pool.request().query(Q.operarios),
     ]);
-    const sqlOper = (rOper.recordset[0] || {}).n || 0;
-    const oper = resolverOperarios(sqlOper);
+    const oper = resolverOperarios();
     const operarios = oper.n;
 
-    // Volcado
-    const volcado = (rVolc.recordset[0] || {}).kg || 0;
-
-    // Confeccionado -> agrupar envases por cliente
+    // Reparto por idConfeccion -> confeccionado (marca) y destrío (cartón).
     const porCliente = {};
     let confTotal = 0;
-    (rEnv.recordset || []).forEach((r) => {
-        const cli = clienteDeEnvase(r.NombreEnvase);
-        porCliente[cli] = (porCliente[cli] || 0) + (r.kg || 0);
-        confTotal += r.kg || 0;
-    });
-    const ordenCli = ['Mercadona', 'Consum', 'Otros'];
-    const confPartes = ordenCli
-        .filter((c) => porCliente[c])
-        .map((c) => ({ label: c, kg: porCliente[c] }));
-
-    // Destrio -> por tipo
-    const porTipo = {};
+    const porDes = {};
     let desTotal = 0;
-    (rDes.recordset || []).forEach((r) => {
-        const t = nombreDestrio(r.NombreProducto);
-        porTipo[t] = (porTipo[t] || 0) + (r.kg || 0);
-        desTotal += r.kg || 0;
+    (rConf.recordset || []).forEach((r) => {
+        const kg = r.kg || 0;
+        if (CONF_CLIENTE[r.idConfeccion]) {
+            const cli = CONF_CLIENTE[r.idConfeccion];
+            porCliente[cli] = (porCliente[cli] || 0) + kg;
+            confTotal += kg;
+        } else if (DESTRIO_LABEL[r.idConfeccion]) {
+            const t = DESTRIO_LABEL[r.idConfeccion];
+            porDes[t] = (porDes[t] || 0) + kg;
+            desTotal += kg;
+        }
+        // idConfeccion 7 (Banana) u otros no catalogados: se ignoran.
     });
-    const ordenDes = ['Dedos', 'Manojo', 'Maduro', 'Tirado'];
-    const desPartes = ordenDes
-        .filter((t) => porTipo[t])
-        .map((t) => ({ label: t, kg: porTipo[t] }))
-        .concat(Object.keys(porTipo).filter((t) => ordenDes.indexOf(t) === -1)
-            .map((t) => ({ label: t, kg: porTipo[t] })));
+    const confPartes = ORDEN_CONF.filter((c) => porCliente[c]).map((c) => ({ label: c, kg: porCliente[c] }));
+    const desPartes = ORDEN_DES.filter((t) => porDes[t]).map((t) => ({ label: t, kg: porDes[t] }));
 
     const serverNow = (rNow.recordset[0] || {}).serverNow || new Date().toISOString();
-    const prod = calcularProductividad(rPales.recordset || [], serverNow, operarios);
+    const prod = calcularProductividad(rCajas.recordset || [], serverNow, operarios);
 
     return {
-        volcado: volcado,
+        volcado: null, // PENDIENTE: no está en la BD de línea (tablas ocultas sin acceso).
         confeccionado: { total: confTotal, partes: reparto(confPartes, confTotal) },
         destrio: { total: desTotal, partes: reparto(desPartes, desTotal) },
         productividad: prod.productividad,
@@ -270,35 +237,30 @@ async function fetchFromSql() {
 // ---------------------------------------------------------------------------
 // Datos DEMO (mismo esquema; varian un poco en cada refresco)
 // ---------------------------------------------------------------------------
-const mockState = { conf: 25000, volc: 28000 };
+const mockState = { conf: 25000 };
 
 function fetchMock() {
     mockState.conf += Math.floor(Math.random() * 200);
-    mockState.volc += Math.floor(Math.random() * 220);
     const conf = mockState.conf;
-    const merca = Math.round(conf * 0.67);
-    const consum = Math.round(conf * 0.31);
-    const otros = conf - merca - consum;
+    const merca = Math.round(conf * 0.68);
+    const consum = conf - merca;
     const des = Math.round(conf * 0.12);
     const serie = [6, 7, 8, 9, 10, 11, 12].map((h) => ({
         hora: h, kg: Math.round(3000 + Math.random() * 2500),
     }));
-    const ref = new Date();
-    ref.setDate(ref.getDate() + DAY_OFFSET);
     return {
-        volcado: mockState.volc,
+        volcado: null, // banda oculta (igual que en producción)
         confeccionado: { total: conf, partes: reparto([
-            { label: 'Mercadona', kg: merca }, { label: 'Consum', kg: consum }, { label: 'Otros', kg: otros },
+            { label: 'Mercadona', kg: merca }, { label: 'Consum', kg: consum },
         ], conf) },
         destrio: { total: des, partes: reparto([
-            { label: 'Dedos', kg: Math.round(des * 0.4) }, { label: 'Manojo', kg: Math.round(des * 0.3) },
-            { label: 'Maduro', kg: Math.round(des * 0.2) }, { label: 'Tirado', kg: Math.round(des * 0.1) },
+            { label: 'Cartón 16kg', kg: Math.round(des * 0.7) }, { label: 'Cartón 10kg', kg: Math.round(des * 0.3) },
         ], des) },
-        productividad: { mediaDia: 127, ultimaHora: 119, ultimos30: 152, ultimos10: 168 },
-        operarios: 35,
+        productividad: { mediaDia: 161, ultimaHora: 149, ultimos30: 152, ultimos10: 168 },
+        operarios: 28,
         operariosFuente: 'demo',
         operariosFecha: null,
-        serie: serie.map(function (s) { return { hora: s.hora, kg: Math.round(s.kg / 35) }; }),
+        serie: serie.map(function (s) { return { hora: s.hora, kg: Math.round(s.kg / 28) }; }),
     };
 }
 
@@ -337,7 +299,7 @@ async function handleData(res) {
                 ok: false, mock: IS_MOCK, stale: true, title: TITLE,
                 refreshSeconds: REFRESH_SECONDS, refDate: refDateFor(), objetivo: OBJETIVO,
                 updatedAt: null, error: 'Sin conexión con la base de datos',
-                volcado: 0, confeccionado: { total: 0, partes: [] },
+                volcado: null, confeccionado: { total: 0, partes: [] },
                 destrio: { total: 0, partes: [] },
                 productividad: { mediaDia: 0, ultimaHora: 0, ultimos30: 0, ultimos10: 0 },
                 operarios: 0, operariosFuente: 'ninguna', operariosFecha: null, serie: [],
