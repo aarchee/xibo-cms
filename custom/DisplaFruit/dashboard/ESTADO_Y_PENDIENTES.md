@@ -4,6 +4,43 @@
 > descubierto (lo más valioso), las consultas clave y las **decisiones pendientes**. Para retomar:
 > "continúa con el dashboard de producción de DisplaFruit".
 
+## 🔴 CAMBIO DE BASE DE DATOS EN CURSO (2026-07-09) — LEER PRIMERO
+ReportingData (Hispatec) **va con retraso** (hoy suele estar a 0). Se va a cambiar la conexión a la
+BD de **control de línea (MES)**, que está **viva al minuto**:
+- **Servidor:** `srv-produccion\sqlexpress` = **192.168.250.237** (instancia con nombre `sqlexpress`;
+  conecta desde Docker vía SQL Browser con `options.instanceName:'sqlexpress'`). Usuario **solo-lectura**
+  `usrexterno` (contraseña en el `.env`, gitignored). BD: **`DisplaFruit`** (única BD de usuario del servidor).
+- **Esquema (8 tablas, nombres con puntos → citar con corchetes `[dbo].[Produccion.Volcados]`):**
+  - `[Cliente.Confecciones]` (7): catálogo. **idConfeccion 2=MERCADONA, 1=CONSUM**, 4=Cartón16, 5=Cartón10,
+    6=Cartón9, 3=Cartón Doniz17, 7=Banana. (Merca/Consum tienen `envase`/`palet`/`marca`; los cartones no.)
+  - `[Produccion.CajasConfeccionadas.Info]` (1,29M): **`pesoNeto` por caja + `idConfeccion` + `fechaHoraInspeccion`**
+    + `codPaleERP`. ← de aquí sale el CONFECCIONADO (SUM(pesoNeto) por idConfeccion y día).
+  - `[Produccion.CajasConfeccionadas]` (1,85M): caja→pale/volcado/partida/mesa + `fechaHora`.
+  - `[Produccion.PalesConfeccionados]` (49k): palés; **`peso` SIEMPRE 0 (no se usa)**; `fechaHoraFin`, salida, SSCC.
+  - `[Produccion.Volcados]` (10,7k): eventos de volcado (~25-41/día); **SIN columna de peso**; `idPale=0`.
+  - `[Produccion.Encajado.Pesos]` (6,2M): pesajes del check-weigher (peso/nominal/regalado, idVolcado1/2/3).
+  - `[Produccion.Partidas]` (2784) y `[Produccion.CajasConfeccionadas.Partidas]` (4,2M): trazas de partida.
+- **Frescura verificada:** MAX(fechaHora) de todas las tablas = ahora mismo (al minuto). Confeccionado de
+  HOY se ve subir en vivo. ReportingData hoy = 0.
+
+### ⚠️ Lo que la BD nueva NO tiene (PENDIENTE — el usuario lo investiga en planta)
+- **VOLCADO (kg):** `Volcados` no guarda peso. No hay kg de volcado en esta BD.
+- **DESTRÍO:** no existe ningún idConfeccion de destrío (en 20 días solo salen 1,2,4,5). No está aquí.
+- → **Decisión del usuario (2026-07-09): "lo investigo con producción"** (dónde se registran volcado y
+  destrío: ¿otra BD/servidor/scada de recepción?). Retomar cuando dé la fuente. Opciones si no aparece:
+  híbrido (volcado/destrío de ReportingData + confeccionado/productividad de la nueva) o rehacer el panel
+  sin esos dos KPIs.
+
+### Confeccionado: nueva vs ReportingData (usuario: "ver ambos y decidir luego")
+Comparado día a día (últimos 10 días): **Mercadona y Consum casi coinciden (±5%)** entre ambas BD;
+**toda la divergencia es "Otros"=cartón genérico**, que ReportingData excluía por su filtro de familia
+"PLATANO DE CANARIAS IGP" (a menudo 0) y la nueva sí cuenta (200-6000 kg/día, producción real). Solo
+Merca+Consum: total nuevo vs ReportingData dentro de **±4%**. → Decisión abierta: **¿mostrar "Otros"
+(cartón) o no?**. Ejemplo 07/07: nueva 18389/7811/2872=29072 vs Reporting 17418/8055/541=26014.
+- Consulta de confeccionado nuevo: `SELECT idConfeccion, SUM(pesoNeto) FROM [dbo].[Produccion.CajasConfeccionadas.Info] WHERE CAST(fechaHoraInspeccion AS date)=@dia GROUP BY idConfeccion` (mapear 2→Merca, 1→Consum, resto→Otros).
+- **NO se ha cambiado aún la conexión del dashboard** (sigue en ReportingData). Cambiar sólo cuando se
+  resuelva volcado/destrío.
+
 ## Qué es
 Micro-servicio Node (sin framework) en `custom/DisplaFruit/dashboard/` que muestra en una TV la
 producción diaria de la línea de plátano, leyendo **SQL Server** (BD `ReportingData` de Hispatec).
