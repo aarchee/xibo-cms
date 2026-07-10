@@ -34,11 +34,13 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { operariosDeExcel } = require('./operarios');
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
-const REFRESH_SECONDS = Math.max(5, parseInt(process.env.REFRESH_SECONDS || '20', 10));
-const OBJETIVO = parseInt(process.env.DASHBOARD_OBJETIVO_KGH || '150', 10);
+const REFRESH_SECONDS = Math.max(5, parseInt(process.env.REFRESH_SECONDS || '60', 10));
+// Objetivo de LÍNEA (kg/h TOTAL, sin dividir por operarios). Decisión de gerencia (2026-07-10):
+// el objetivo por operario no era fiable (el nº de operarios no se actualiza a tiempo), así que se
+// fija un objetivo total de línea de 6000 kg/h y se ignora por completo el nº de operarios.
+const OBJETIVO = parseInt(process.env.DASHBOARD_OBJETIVO_KGH || '6000', 10);
 
 const MSSQL_HOST = (process.env.MSSQL_HOST || '').trim();
 const IS_MOCK = MSSQL_HOST === '';
@@ -49,26 +51,6 @@ const DAY_SQL = `CAST(DATEADD(DAY, ${DAY_OFFSET}, GETDATE()) AS date)`;
 const DAY_WORD = DAY_OFFSET === 0 ? 'hoy' : (DAY_OFFSET === -1 ? 'ayer' : ('día ' + DAY_OFFSET));
 const TITLE = process.env.DASHBOARD_TITLE
     || ('Producción ' + (DAY_OFFSET === 0 ? 'diaria' : DAY_WORD + ' (validación)'));
-
-// Override manual del nº de operarios (gana sobre todo si > 0). Para el día que el Excel falle.
-const MANUAL_OP = parseInt(process.env.DASHBOARD_OPERARIOS || '0', 10);
-
-// Día de referencia como {y,m,d} (mismo criterio que refDateFor: fecha local + offset).
-function refDayParts() {
-    const d = new Date();
-    d.setDate(d.getDate() + DAY_OFFSET);
-    return { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() };
-}
-
-// Resuelve el nº de operarios de línea por prioridad:
-//   1) override manual (.env DASHBOARD_OPERARIOS)  2) Excel de RRHH (con respaldo al último
-//   día relleno)  3) sin dato. (La BD de línea no tiene fichajes -> no hay respaldo SQL.)
-function resolverOperarios() {
-    if (MANUAL_OP > 0) return { n: MANUAL_OP, fuente: 'manual', fecha: null };
-    const ex = operariosDeExcel(refDayParts());
-    if (ex && ex.n > 0) return { n: ex.n, fuente: ex.fuente, fecha: ex.fecha };
-    return { n: 0, fuente: 'ninguna', fecha: null };
-}
 
 // --- Mapa idConfeccion -> categoría (BD de línea, tabla Cliente.Confecciones) ---
 // CONFECCIONADO (producto de marca) = Consum(1) + Mercadona(2).
@@ -138,10 +120,10 @@ function reparto(filas, total) {
     }));
 }
 
-// Calcula productividad (KG/h POR OPERARIO) y serie horaria a partir de los pales
-// confeccionados. Se divide entre `operarios` (operarios de produccion presentes ese dia).
-function calcularProductividad(pales, serverNow, operarios) {
-    const div = operarios > 0 ? operarios : 1;
+// Calcula productividad (KG/h TOTAL de la línea) y serie horaria a partir de los pales
+// confeccionados. Es el ritmo total de la línea (ya NO se divide por operarios); se compara
+// directamente contra el objetivo de línea (OBJETIVO = 6000 kg/h).
+function calcularProductividad(pales, serverNow) {
     const conTiempo = pales
         .filter((p) => p.finish)
         .map((p) => ({ kg: p.kg || 0, t: new Date(p.finish).getTime() }));
@@ -164,10 +146,10 @@ function calcularProductividad(pales, serverNow, operarios) {
     const rate = (mins, mult) => {
         const cut = ref - mins * 60000;
         const kg = conTiempo.filter((p) => p.t > cut).reduce((s, p) => s + p.kg, 0);
-        return Math.round((kg * mult) / div);
+        return Math.round(kg * mult);
     };
 
-    // Serie por hora (kg/h por operario). getUTCHours = hora local (mssql envuelve en UTC).
+    // Serie por hora (kg/h de línea). getUTCHours = hora local (mssql envuelve en UTC).
     const buckets = {};
     conTiempo.forEach((p) => {
         const h = new Date(p.t).getUTCHours();
@@ -175,11 +157,11 @@ function calcularProductividad(pales, serverNow, operarios) {
     });
     const serie = Object.keys(buckets)
         .map(Number).sort((a, b) => a - b)
-        .map((h) => ({ hora: h, kg: Math.round(buckets[h] / div) }));
+        .map((h) => ({ hora: h, kg: Math.round(buckets[h]) }));
 
     return {
         productividad: {
-            mediaDia: horas ? Math.round(totalConf / horas / div) : Math.round(totalConf / div),
+            mediaDia: horas ? Math.round(totalConf / horas) : Math.round(totalConf),
             ultimaHora: rate(60, 1),
             ultimos30: rate(30, 2),
             ultimos10: rate(10, 6),
@@ -195,8 +177,6 @@ async function fetchFromSql() {
         pool.request().query(Q.cajas),
         pool.request().query(Q.now),
     ]);
-    const oper = resolverOperarios();
-    const operarios = oper.n;
 
     // Reparto por idConfeccion -> confeccionado (marca) y destrío (cartón).
     const porCliente = {};
@@ -220,16 +200,13 @@ async function fetchFromSql() {
     const desPartes = ORDEN_DES.filter((t) => porDes[t]).map((t) => ({ label: t, kg: porDes[t] }));
 
     const serverNow = (rNow.recordset[0] || {}).serverNow || new Date().toISOString();
-    const prod = calcularProductividad(rCajas.recordset || [], serverNow, operarios);
+    const prod = calcularProductividad(rCajas.recordset || [], serverNow);
 
     return {
         volcado: null, // PENDIENTE: no está en la BD de línea (tablas ocultas sin acceso).
         confeccionado: { total: confTotal, partes: reparto(confPartes, confTotal) },
         destrio: { total: desTotal, partes: reparto(desPartes, desTotal) },
         productividad: prod.productividad,
-        operarios: operarios,
-        operariosFuente: oper.fuente,
-        operariosFecha: oper.fecha,
         serie: prod.serie,
     };
 }
@@ -256,11 +233,8 @@ function fetchMock() {
         destrio: { total: des, partes: reparto([
             { label: 'Cartón 16kg', kg: Math.round(des * 0.7) }, { label: 'Cartón 10kg', kg: Math.round(des * 0.3) },
         ], des) },
-        productividad: { mediaDia: 161, ultimaHora: 149, ultimos30: 152, ultimos10: 168 },
-        operarios: 28,
-        operariosFuente: 'demo',
-        operariosFecha: null,
-        serie: serie.map(function (s) { return { hora: s.hora, kg: Math.round(s.kg / 28) }; }),
+        productividad: { mediaDia: 4200, ultimaHora: 5100, ultimos30: 4800, ultimos10: 3900 },
+        serie: serie,
     };
 }
 
@@ -302,7 +276,7 @@ async function handleData(res) {
                 volcado: null, confeccionado: { total: 0, partes: [] },
                 destrio: { total: 0, partes: [] },
                 productividad: { mediaDia: 0, ultimaHora: 0, ultimos30: 0, ultimos10: 0 },
-                operarios: 0, operariosFuente: 'ninguna', operariosFecha: null, serie: [],
+                serie: [],
             };
     }
     res.writeHead(200, {

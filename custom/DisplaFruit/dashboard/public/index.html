@@ -113,12 +113,12 @@
         </div>
 
         <!-- Productividad -->
-        <div class="prod-cab" id="prod-cab">Productividad por operario (kg/h)</div>
+        <div class="prod-cab" id="prod-cab">Productividad de la línea (kg/h)</div>
         <div class="prod-wrap" id="prod-wrap"></div>
 
         <!-- Gráfico -->
         <div class="grafico">
-            <div class="gcab" id="gcab">Productividad de la línea — confeccionado por hora y operario (kg/h)</div>
+            <div class="gcab" id="gcab">Productividad de la línea — confeccionado por hora (kg/h)</div>
             <svg id="chart" viewBox="0 0 1000 320" preserveAspectRatio="none"></svg>
         </div>
     </main>
@@ -131,7 +131,7 @@
 <script>
 (function () {
     'use strict';
-    var refreshMs = 20000;
+    var refreshMs = 60000;
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -242,20 +242,11 @@
         document.getElementById('des-total').innerHTML = fmt(des.total || 0) + ' <small>kg</small>';
         renderPartes(document.getElementById('des-partes'), des.partes, false);
 
-        var ops = data.operarios || 0;
-        // Sufijo con la procedencia del recuento (validación): Excel (día), día previo, SQL, manual.
-        var fuente = data.operariosFuente || '';
-        var suf = '';
-        if (ops) {
-            if (fuente === 'excel') suf = '';
-            else if (fuente === 'excel-previo') suf = ' <small style="opacity:.7">(Excel ' + (data.operariosFecha || '') + ')</small>';
-            else if (fuente === 'sql') suf = ' <small style="opacity:.7">(estimado)</small>';
-            else if (fuente === 'manual') suf = ' <small style="opacity:.7">(manual)</small>';
-        }
-        document.getElementById('prod-cab').innerHTML = 'Productividad por operario (kg/h) · <b>' +
-            (ops ? fmt(ops) + ' operarios en línea' + suf : 'sin datos de operarios') + '</b> · objetivo ' + fmt(data.objetivo || 150);
-        renderProd(data.productividad || {}, data.objetivo || 150);
-        renderChart(data.serie || [], data.objetivo || 150);
+        var objetivo = data.objetivo || 6000;
+        document.getElementById('prod-cab').innerHTML =
+            'Productividad de la línea (kg/h) · objetivo <b>' + fmt(objetivo) + ' kg/h</b>';
+        renderProd(data.productividad || {}, objetivo);
+        renderChart(data.serie || [], objetivo);
 
         var act = document.getElementById('actualizado');
         if (data.updatedAt) {

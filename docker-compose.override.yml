@@ -48,7 +48,9 @@ services:
       MSSQL_USER: "${MSSQL_USER:-}"
       MSSQL_PASSWORD: "${MSSQL_PASSWORD:-}"
       MSSQL_ENCRYPT: "${MSSQL_ENCRYPT:-false}"
-      REFRESH_SECONDS: "${DASHBOARD_REFRESH_SECONDS:-20}"
+      REFRESH_SECONDS: "${DASHBOARD_REFRESH_SECONDS:-60}"
+      # Objetivo de línea en kg/h TOTAL (sin operarios). Gerencia (2026-07-10): 6000 kg/h.
+      DASHBOARD_OBJETIVO_KGH: "${DASHBOARD_OBJETIVO_KGH:-6000}"
       # Día de referencia: 0=hoy, -1=ayer (validación contra PowerBI).
       DASHBOARD_DAY_OFFSET: "${DASHBOARD_DAY_OFFSET:-0}"
       # Operarios de línea (para KG/h por operario). Fuente principal = Excel RRHH; si falta
