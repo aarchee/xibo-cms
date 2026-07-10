@@ -149,15 +149,28 @@ function calcularProductividad(pales, serverNow) {
         return Math.round(kg * mult);
     };
 
-    // Serie por hora (kg/h de línea). getUTCHours = hora local (mssql envuelve en UTC).
+    // Serie por tramos de 30 min (kg/h de línea). getUTCHours/Minutes = hora local (mssql
+    // envuelve en UTC). Cada punto = ritmo del tramo en kg/h: kg del tramo escalado a 1 hora
+    // (x2 en tramos completos). El tramo EN CURSO se escala por los minutos ya transcurridos
+    // (no x2) para no dibujar una caída falsa en el último punto.
     const buckets = {};
     conTiempo.forEach((p) => {
-        const h = new Date(p.t).getUTCHours();
-        buckets[h] = (buckets[h] || 0) + p.kg;
+        const d = new Date(p.t);
+        const key = d.getUTCHours() * 60 + (d.getUTCMinutes() < 30 ? 0 : 30);
+        buckets[key] = (buckets[key] || 0) + p.kg;
     });
+    const refD = new Date(ref);
+    const refMin = refD.getUTCHours() * 60 + refD.getUTCMinutes();
     const serie = Object.keys(buckets)
         .map(Number).sort((a, b) => a - b)
-        .map((h) => ({ hora: h, kg: Math.round(buckets[h]) }));
+        .map((key) => {
+            const enCurso = key <= refMin && refMin < key + 30;
+            const mins = enCurso ? Math.max(5, refMin - key) : 30;
+            return {
+                label: ('0' + Math.floor(key / 60)).slice(-2) + ':' + ('0' + (key % 60)).slice(-2),
+                kg: Math.round(buckets[key] * (60 / mins)),
+            };
+        });
 
     return {
         productividad: {
@@ -222,8 +235,9 @@ function fetchMock() {
     const merca = Math.round(conf * 0.68);
     const consum = conf - merca;
     const des = Math.round(conf * 0.12);
-    const serie = [6, 7, 8, 9, 10, 11, 12].map((h) => ({
-        hora: h, kg: Math.round(3000 + Math.random() * 2500),
+    const tramos = ['06:00', '06:30', '07:00', '07:30', '08:00', '08:30', '09:00', '09:30', '10:00'];
+    const serie = tramos.map((label) => ({
+        label: label, kg: Math.round(3000 + Math.random() * 2500),
     }));
     return {
         volcado: null, // banda oculta (igual que en producción)

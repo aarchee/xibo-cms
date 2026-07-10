@@ -61,7 +61,7 @@
     /* Productividad */
     .prod-cab { font-size: 2vh; color: var(--tenue); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: -0.4vh; }
     .prod-cab b { color: var(--naranja); }
-    .prod-wrap { display: grid; grid-template-columns: repeat(4, 1fr) 1.1fr; gap: 1.2vw; align-items: stretch; }
+    .prod-wrap { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.2vw; align-items: stretch; }
     .prod { background: var(--marron-2); border-radius: 1.2vh; padding: 1.2vh 1vw; display: flex; flex-direction: column; justify-content: center; }
     .prod .plab { font-size: 1.9vh; color: var(--tenue); text-transform: uppercase; letter-spacing: 0.04em; }
     .prod .pv { font-size: 4.6vh; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.05; }
@@ -118,7 +118,7 @@
 
         <!-- Gráfico -->
         <div class="grafico">
-            <div class="gcab" id="gcab">Productividad de la línea — confeccionado por hora (kg/h)</div>
+            <div class="gcab" id="gcab">Productividad de la línea — confeccionado por tramos de 30 min (kg/h)</div>
             <svg id="chart" viewBox="0 0 1000 320" preserveAspectRatio="none"></svg>
         </div>
     </main>
@@ -160,31 +160,27 @@
         }).join('');
     }
 
-    function renderProd(prod, objetivo) {
+    function renderProd(prod) {
         var tiles = [
             { lab: 'Media día', v: prod.mediaDia },
             { lab: 'Última hora', v: prod.ultimaHora },
             { lab: 'Últimos 30′', v: prod.ultimos30 },
             { lab: 'Últimos 10′', v: prod.ultimos10 },
         ];
-        var html = tiles.map(function (t) {
-            var cls = (t.v >= objetivo) ? 'ok' : 'ko';
-            return '<div class="prod ' + cls + '"><div class="plab">' + esc(t.lab) + '</div>' +
+        document.getElementById('prod-wrap').innerHTML = tiles.map(function (t) {
+            return '<div class="prod"><div class="plab">' + esc(t.lab) + '</div>' +
                    '<div class="pv">' + fmt(t.v) + ' <small>kg/h</small></div></div>';
         }).join('');
-        html += '<div class="prod obj"><div class="plab">Objetivo</div>' +
-                '<div class="pv">' + fmt(objetivo) + ' <small>kg/h</small></div></div>';
-        document.getElementById('prod-wrap').innerHTML = html;
     }
 
-    function renderChart(serie, objetivo) {
+    function renderChart(serie) {
         var svg = document.getElementById('chart');
         var W = 1000, H = 320, pad = { l: 62, r: 24, t: 18, b: 34 };
         if (!serie || !serie.length) {
             svg.innerHTML = '<text x="500" y="160" fill="#b8a496" font-size="22" text-anchor="middle">Sin producción registrada</text>';
             return;
         }
-        var maxV = Math.max(objetivo, Math.max.apply(null, serie.map(function (s) { return s.kg; })));
+        var maxV = Math.max.apply(null, serie.map(function (s) { return s.kg; })) || 500;
         var step = maxV > 4000 ? 2000 : (maxV > 1500 ? 1000 : 500);
         var niceMax = Math.ceil(maxV / step) * step;
         var iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
@@ -201,24 +197,21 @@
             parts.push('<text x="' + (pad.l - 8) + '" y="' + (y + 5) + '" fill="#b8a496" font-size="16" text-anchor="end">' +
                 fmt(g) + '</text>');
         }
-        // Línea de objetivo
-        var yo = yOf(objetivo);
-        parts.push('<line x1="' + pad.l + '" y1="' + yo + '" x2="' + (W - pad.r) + '" y2="' + yo +
-            '" stroke="#F47920" stroke-width="2" stroke-dasharray="7 6" opacity="0.85"/>');
-        parts.push('<text x="' + (W - pad.r) + '" y="' + (yo - 7) + '" fill="#F47920" font-size="15" text-anchor="end">objetivo ' + fmt(objetivo) + '</text>');
 
-        // Área + línea
+        // Área + línea (todos los tramos de 30 min)
         var pts = serie.map(function (s, i) { return xOf(i) + ',' + yOf(s.kg); });
         var area = 'M' + pad.l + ',' + (pad.t + ih) + ' L' + pts.join(' L') + ' L' + (xOf(n - 1)) + ',' + (pad.t + ih) + ' Z';
         parts.push('<path d="' + area + '" fill="rgba(244,121,32,0.16)"/>');
         parts.push('<polyline points="' + pts.join(' ') + '" fill="none" stroke="#F47920" stroke-width="3.5" stroke-linejoin="round"/>');
-        // Puntos + valores + etiquetas X
+        // Puntos en todos los tramos; valor y etiqueta X solo en las horas en punto (para no saturar)
         serie.forEach(function (s, i) {
             var x = xOf(i), y = yOf(s.kg);
-            parts.push('<circle cx="' + x + '" cy="' + y + '" r="4.5" fill="#FFF8F2"/>');
-            parts.push('<text x="' + x + '" y="' + (y - 12) + '" fill="#FFF8F2" font-size="15" text-anchor="middle">' + fmt(s.kg) + '</text>');
-            parts.push('<text x="' + x + '" y="' + (H - 10) + '" fill="#b8a496" font-size="16" text-anchor="middle">' +
-                ('0' + s.hora).slice(-2) + 'h</text>');
+            var enHora = /:00$/.test(s.label || '');
+            parts.push('<circle cx="' + x + '" cy="' + y + '" r="' + (enHora ? 4.5 : 3) + '" fill="#FFF8F2"/>');
+            if (enHora) {
+                parts.push('<text x="' + x + '" y="' + (y - 12) + '" fill="#FFF8F2" font-size="15" text-anchor="middle">' + fmt(s.kg) + '</text>');
+                parts.push('<text x="' + x + '" y="' + (H - 10) + '" fill="#b8a496" font-size="16" text-anchor="middle">' + esc(s.label) + '</text>');
+            }
         });
         svg.innerHTML = parts.join('');
     }
@@ -242,11 +235,9 @@
         document.getElementById('des-total').innerHTML = fmt(des.total || 0) + ' <small>kg</small>';
         renderPartes(document.getElementById('des-partes'), des.partes, false);
 
-        var objetivo = data.objetivo || 6000;
-        document.getElementById('prod-cab').innerHTML =
-            'Productividad de la línea (kg/h) · objetivo <b>' + fmt(objetivo) + ' kg/h</b>';
-        renderProd(data.productividad || {}, objetivo);
-        renderChart(data.serie || [], objetivo);
+        document.getElementById('prod-cab').innerHTML = 'Productividad de la línea (kg/h)';
+        renderProd(data.productividad || {});
+        renderChart(data.serie || []);
 
         var act = document.getElementById('actualizado');
         if (data.updatedAt) {
