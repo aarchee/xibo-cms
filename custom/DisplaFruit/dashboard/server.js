@@ -161,16 +161,23 @@ function calcularProductividad(pales, serverNow) {
     });
     const refD = new Date(ref);
     const refMin = refD.getUTCHours() * 60 + refD.getUTCMinutes();
-    const serie = Object.keys(buckets)
-        .map(Number).sort((a, b) => a - b)
-        .map((key) => {
-            const enCurso = key <= refMin && refMin < key + 30;
-            const mins = enCurso ? Math.max(5, refMin - key) : 30;
-            return {
-                label: ('0' + Math.floor(key / 60)).slice(-2) + ':' + ('0' + (key % 60)).slice(-2),
-                kg: Math.round(buckets[key] * (60 / mins)),
-            };
-        });
+    // Eje de tiempo CONTINUO: recorre todos los tramos de 30 min entre el primero y el último con
+    // datos, rellenando con 0 los tramos SIN producción (paradas de línea). Así la parada se ve
+    // como una caída y las horas del eje quedan alineadas (no se colapsan los huecos).
+    const claves = Object.keys(buckets).map(Number);
+    const serie = [];
+    if (claves.length) {
+        const minK = Math.min.apply(null, claves);
+        const maxK = Math.max.apply(null, claves);
+        for (let k = minK; k <= maxK; k += 30) {
+            const enCurso = k <= refMin && refMin < k + 30;
+            const mins = enCurso ? Math.max(5, refMin - k) : 30;
+            serie.push({
+                label: ('0' + Math.floor(k / 60)).slice(-2) + ':' + ('0' + (k % 60)).slice(-2),
+                kg: Math.round((buckets[k] || 0) * (60 / mins)),
+            });
+        }
+    }
 
     return {
         productividad: {
