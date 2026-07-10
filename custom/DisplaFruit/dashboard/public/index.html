@@ -182,7 +182,9 @@
         }
         var maxV = Math.max.apply(null, serie.map(function (s) { return s.kg; })) || 500;
         var step = maxV > 4000 ? 2000 : (maxV > 1500 ? 1000 : 500);
-        var niceMax = Math.ceil(maxV / step) * step;
+        // +15% de margen sobre el máximo antes de redondear al alza: así el punto más alto nunca
+        // queda pegado al techo y su etiqueta (que va encima) no se corta por arriba.
+        var niceMax = Math.ceil((maxV * 1.15) / step) * step;
         var iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
         var n = serie.length;
         var xOf = function (i) { return pad.l + (n === 1 ? iw / 2 : (iw * i) / (n - 1)); };
@@ -209,8 +211,10 @@
             var enHora = /:00$/.test(s.label || '');
             parts.push('<circle cx="' + x + '" cy="' + y + '" r="' + (enHora ? 4.5 : 3) + '" fill="#FFF8F2"/>');
             if (enHora) {
-                parts.push('<text x="' + x + '" y="' + (y - 12) + '" fill="#FFF8F2" font-size="15" text-anchor="middle">' + fmt(s.kg) + '</text>');
-                parts.push('<text x="' + x + '" y="' + (H - 10) + '" fill="#b8a496" font-size="16" text-anchor="middle">' + esc(s.label) + '</text>');
+                // En los bordes, ancla el texto a 'start'/'end' para que no se corte lateralmente.
+                var anc = (x > W - pad.r - 45) ? 'end' : (x < pad.l + 45 ? 'start' : 'middle');
+                parts.push('<text x="' + x + '" y="' + (y - 12) + '" fill="#FFF8F2" font-size="15" text-anchor="' + anc + '">' + fmt(s.kg) + '</text>');
+                parts.push('<text x="' + x + '" y="' + (H - 10) + '" fill="#b8a496" font-size="16" text-anchor="' + anc + '">' + esc(s.label) + '</text>');
             }
         });
         svg.innerHTML = parts.join('');
