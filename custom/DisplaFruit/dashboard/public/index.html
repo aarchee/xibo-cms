@@ -187,7 +187,9 @@
         var niceMax = Math.ceil((maxV * 1.15) / step) * step;
         var iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
         var n = serie.length;
-        var xOf = function (i) { return pad.l + (n === 1 ? iw / 2 : (iw * i) / (n - 1)); };
+        var cw = iw / n;                                        // ancho de cada tramo de 30 min
+        var xL = function (i) { return pad.l + cw * i; };        // borde izquierdo del tramo i
+        var xC = function (i) { return pad.l + cw * (i + 0.5); }; // centro del tramo i
         var yOf = function (v) { return pad.t + ih - (ih * v) / niceMax; };
 
         var parts = [];
@@ -200,22 +202,25 @@
                 fmt(g) + '</text>');
         }
 
-        // Área + línea (todos los tramos de 30 min)
-        var pts = serie.map(function (s, i) { return xOf(i) + ',' + yOf(s.kg); });
-        var area = 'M' + pad.l + ',' + (pad.t + ih) + ' L' + pts.join(' L') + ' L' + (xOf(n - 1)) + ',' + (pad.t + ih) + ' Z';
-        parts.push('<path d="' + area + '" fill="rgba(244,121,32,0.16)"/>');
-        parts.push('<polyline points="' + pts.join(' ') + '" fill="none" stroke="#F47920" stroke-width="3.5" stroke-linejoin="round"/>');
-        // Puntos en todos los tramos; valor y etiqueta X solo en las horas en punto (para no saturar)
+        // Línea/área ESCALONADA: cada tramo mantiene su valor toda su franja de 30 min. Así una
+        // parada de línea sale como un tramo plano a 0 (no se interpola producción inexistente).
+        var stepPts = [];
         serie.forEach(function (s, i) {
-            var x = xOf(i), y = yOf(s.kg);
-            var enHora = /:00$/.test(s.label || '');
-            parts.push('<circle cx="' + x + '" cy="' + y + '" r="' + (enHora ? 4.5 : 3) + '" fill="#FFF8F2"/>');
-            if (enHora) {
-                // En los bordes, ancla el texto a 'start'/'end' para que no se corte lateralmente.
-                var anc = (x > W - pad.r - 45) ? 'end' : (x < pad.l + 45 ? 'start' : 'middle');
-                parts.push('<text x="' + x + '" y="' + (y - 12) + '" fill="#FFF8F2" font-size="15" text-anchor="' + anc + '">' + fmt(s.kg) + '</text>');
-                parts.push('<text x="' + x + '" y="' + (H - 10) + '" fill="#b8a496" font-size="16" text-anchor="' + anc + '">' + esc(s.label) + '</text>');
-            }
+            var yy = yOf(s.kg);
+            stepPts.push(xL(i) + ',' + yy);
+            stepPts.push(xL(i + 1) + ',' + yy);
+        });
+        var area = 'M' + xL(0) + ',' + (pad.t + ih) + ' L' + stepPts.join(' L') + ' L' + xL(n) + ',' + (pad.t + ih) + ' Z';
+        parts.push('<path d="' + area + '" fill="rgba(244,121,32,0.16)"/>');
+        parts.push('<polyline points="' + stepPts.join(' ') + '" fill="none" stroke="#F47920" stroke-width="3.5" stroke-linejoin="round"/>');
+        // Marcador + valor + etiqueta de hora, solo en las horas en punto (para no saturar)
+        serie.forEach(function (s, i) {
+            if (!/:00$/.test(s.label || '')) { return; }
+            var x = xC(i), yy = yOf(s.kg);
+            var anc = (x > W - pad.r - 45) ? 'end' : (x < pad.l + 45 ? 'start' : 'middle');
+            parts.push('<circle cx="' + x + '" cy="' + yy + '" r="4.5" fill="#FFF8F2"/>');
+            parts.push('<text x="' + x + '" y="' + (yy - 12) + '" fill="#FFF8F2" font-size="15" text-anchor="' + anc + '">' + fmt(s.kg) + '</text>');
+            parts.push('<text x="' + x + '" y="' + (H - 10) + '" fill="#b8a496" font-size="16" text-anchor="' + anc + '">' + esc(s.label) + '</text>');
         });
         svg.innerHTML = parts.join('');
     }
