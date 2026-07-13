@@ -179,6 +179,7 @@
         </div>
 
         <button type="button" class="df-publish-btn" id="df-open-publish">📢 Publicar contenido</button>
+        <button type="button" class="df-publish-btn" id="df-open-layout" style="background:var(--df-secondary);box-shadow:0 2px 6px rgba(61,43,31,0.4);">📊 Lanzar dashboard / layout</button>
 
         <section id="df-np-section" class="df-hide">
             <h2 class="df-section">📺 En antena ahora</h2>
@@ -253,6 +254,62 @@
         </div>
     </div>
 
+    <!-- Modal de lanzar un layout de Xibo (dashboard de producción u otro contenido) -->
+    <div class="df-modal-backdrop" id="df-modal-layout">
+        <div class="df-modal">
+            <h2>Lanzar dashboard / layout</h2>
+            <form id="df-layout-form">
+                <label for="df-layout-select">Contenido (layout de Xibo)</label>
+                <select id="df-layout-select"><option value="">Cargando…</option></select>
+
+                <label>¿Dónde?</label>
+                <div class="df-choices" id="df-ltarget">
+                    <label><input type="radio" name="ltargetType" value="all" checked><span>Todas</span></label>
+                    <label><input type="radio" name="ltargetType" value="group"><span>Un grupo</span></label>
+                    <label><input type="radio" name="ltargetType" value="display"><span>Una pantalla</span></label>
+                </div>
+                <select id="df-lgroup-select" class="df-hide" style="margin-top:0.5rem;">
+                    {% for g in groups %}
+                        <option value="{{ g.displayGroupId }}">{{ g.name }}</option>
+                    {% endfor %}
+                </select>
+                <select id="df-ldisplay-select" class="df-hide" style="margin-top:0.5rem;">
+                    {% for d in displays %}
+                        <option value="{{ d.displayId }}">{{ d.name }}</option>
+                    {% endfor %}
+                </select>
+
+                <label>¿Cuánto tiempo?</label>
+                <div class="df-choices" id="df-lschedule">
+                    <label><input type="radio" name="lscheduleMode" value="permanent" checked><span>Permanente</span></label>
+                    <label><input type="radio" name="lscheduleMode" value="temporary"><span>Temporal</span></label>
+                    <label><input type="radio" name="lscheduleMode" value="range"><span>Fechas</span></label>
+                </div>
+
+                <div id="df-lsched-temporary" class="df-hide">
+                    <label for="df-lduration">Duración en pantalla (segundos)</label>
+                    <input type="number" id="df-lduration" value="30" min="1" max="86400">
+                </div>
+                <div id="df-lsched-range" class="df-hide">
+                    <label for="df-lfrom">Desde</label>
+                    <input type="datetime-local" id="df-lfrom">
+                    <label for="df-lto">Hasta</label>
+                    <input type="datetime-local" id="df-lto">
+                </div>
+                <p id="df-lperm-note" class="df-muted">Se mostrará de forma permanente hasta que lo pares (ideal para el dashboard).</p>
+
+                <label class="df-check"><input type="checkbox" id="df-lurgent"> Urgente (interrumpe lo que haya)</label>
+
+                <div class="df-result" id="df-lresult"></div>
+
+                <div class="df-modal-actions">
+                    <button type="button" class="df-btn df-btn-secondary" id="df-lcancel">Cancelar</button>
+                    <button type="submit" class="df-btn df-btn-primary" id="df-lsubmit">Lanzar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script nonce="{{ cspNonce }}">
         (function () {
             var urls = {
@@ -260,7 +317,9 @@
                 history: "{{ url_for('displafruit.dashboard.history') }}",
                 publish: "{{ url_for('displafruit.publishAll.web') }}",
                 republish: "{{ url_for('displafruit.republish.web') }}",
-                unpublish: "{{ url_for('displafruit.unpublish.web') }}"
+                unpublish: "{{ url_for('displafruit.unpublish.web') }}",
+                publishLayout: "{{ url_for('displafruit.publishLayout.web') }}",
+                layouts: "{{ url_for('displafruit.layouts.web') }}"
             };
             var csrfKey = "{{ csrfKey }}";
             var csrfToken = "{{ csrfToken }}";
@@ -272,7 +331,7 @@
                     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
                 });
             }
-            function typeIcon(t) { return t === 'video' ? '🎬' : (t === 'pdf' ? '📄' : '🖼️'); }
+            function typeIcon(t) { return t === 'layout' ? '📊' : (t === 'video' ? '🎬' : (t === 'pdf' ? '📄' : '🖼️')); }
             function thumbHtml(item, cls) {
                 if (item && item.thumbUrl) {
                     return '<img class="' + cls + '" src="' + esc(item.thumbUrl) + '" alt="">';
@@ -495,6 +554,94 @@
                     showResult('err', '❌ Error de red: ' + err.message);
                 });
             });
+
+            // ---- Modal de lanzar layout (dashboard u otro contenido de Xibo) ----
+            var lmodal = document.getElementById('df-modal-layout');
+            var lform = document.getElementById('df-layout-form');
+            var lsubmit = document.getElementById('df-lsubmit');
+            var lresult = document.getElementById('df-lresult');
+            var lselect = document.getElementById('df-layout-select');
+            var layoutsLoaded = false;
+
+            function showLResult(cls, msg) { lresult.className = 'df-result ' + cls; lresult.textContent = msg; }
+            function loadLayouts() {
+                fetch(urls.layouts, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        var list = (data && data.layouts) || [];
+                        if (!list.length) { lselect.innerHTML = '<option value="">(no hay layouts publicados)</option>'; return; }
+                        lselect.innerHTML = list.map(function (l) {
+                            return '<option value="' + l.layoutId + '">' + esc(l.name) + '</option>';
+                        }).join('');
+                        layoutsLoaded = true;
+                    })
+                    .catch(function () { lselect.innerHTML = '<option value="">(error al cargar)</option>'; });
+            }
+            function openLModal() { lmodal.classList.add('open'); if (!layoutsLoaded) { loadLayouts(); } }
+            function closeLModal() { lmodal.classList.remove('open'); lresult.className = 'df-result'; }
+            document.getElementById('df-open-layout').addEventListener('click', openLModal);
+            document.getElementById('df-lcancel').addEventListener('click', closeLModal);
+            lmodal.addEventListener('click', function (e) { if (e.target === lmodal) { closeLModal(); } });
+
+            function updateLTargetInputs() {
+                var t = lform.querySelector('input[name="ltargetType"]:checked').value;
+                document.getElementById('df-lgroup-select').classList.toggle('df-hide', t !== 'group');
+                document.getElementById('df-ldisplay-select').classList.toggle('df-hide', t !== 'display');
+            }
+            function updateLScheduleInputs() {
+                var m = lform.querySelector('input[name="lscheduleMode"]:checked').value;
+                document.getElementById('df-lsched-temporary').classList.toggle('df-hide', m !== 'temporary');
+                document.getElementById('df-lsched-range').classList.toggle('df-hide', m !== 'range');
+                document.getElementById('df-lperm-note').classList.toggle('df-hide', m !== 'permanent');
+            }
+            document.getElementById('df-ltarget').addEventListener('change', updateLTargetInputs);
+            document.getElementById('df-lschedule').addEventListener('change', updateLScheduleInputs);
+
+            lform.addEventListener('submit', function (e) {
+                e.preventDefault();
+                var layoutId = lselect.value;
+                if (!layoutId) { showLResult('err', 'Selecciona un layout.'); return; }
+                var targetType = lform.querySelector('input[name="ltargetType"]:checked').value;
+                var scheduleMode = lform.querySelector('input[name="lscheduleMode"]:checked').value;
+
+                var data = new FormData();
+                data.append('layoutId', layoutId);
+                data.append('targetType', targetType);
+                if (targetType === 'group') { data.append('targetId', document.getElementById('df-lgroup-select').value); }
+                if (targetType === 'display') { data.append('targetId', document.getElementById('df-ldisplay-select').value); }
+                data.append('scheduleMode', scheduleMode);
+                if (scheduleMode === 'temporary') { data.append('duration', document.getElementById('df-lduration').value); }
+                if (scheduleMode === 'range') {
+                    data.append('fromDt', document.getElementById('df-lfrom').value);
+                    data.append('toDt', document.getElementById('df-lto').value);
+                }
+                data.append('urgent', document.getElementById('df-lurgent').checked ? 1 : 0);
+                data.append(csrfKey, csrfToken);
+
+                lsubmit.disabled = true;
+                showLResult('ok', 'Lanzando…');
+                fetch(urls.publishLayout, {
+                    method: 'POST', body: data,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-XSRF-TOKEN': csrfToken },
+                    credentials: 'same-origin'
+                })
+                .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+                .then(function (res) {
+                    lsubmit.disabled = false;
+                    if (res.ok && res.body.success) {
+                        showLResult('ok', '✅ Lanzado en ' + res.body.screens_updated + ' pantalla(s) online.');
+                        loadState();
+                        loadHistory();
+                        setTimeout(closeLModal, 1400);
+                    } else {
+                        showLResult('err', '❌ ' + (res.body.message || 'No se pudo lanzar.'));
+                    }
+                })
+                .catch(function (err) { lsubmit.disabled = false; showLResult('err', '❌ Error de red: ' + err.message); });
+            });
+
+            updateLTargetInputs();
+            updateLScheduleInputs();
 
             // ---- Arranque ----
             updateTargetInputs();

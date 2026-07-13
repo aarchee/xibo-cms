@@ -205,6 +205,26 @@ class PublishController extends Base
                 return $response->withJson(['success' => false, 'message' => __('No autorizado.')], 403);
             }
 
+            // Publicaciones de tipo 'layout' (p. ej. dashboard): reprograman el layout, no un media.
+            if (($pub['mediaType'] ?? '') === 'layout') {
+                try {
+                    $layout = $this->layoutFactory->getById((int) $pub['layoutId'], false);
+                } catch (\Throwable $e) {
+                    return $response->withJson([
+                        'success' => false,
+                        'message' => __('El layout ya no existe o no tienes acceso.'),
+                    ], 404);
+                }
+                $target = $this->resolveTargetFromPublication($pub);
+                $sched = $this->scheduleFromPublication($pub);
+                $result = $this->doPublishLayout($layout, (string) $pub['name'], $target, $sched);
+                return $response->withJson([
+                    'success'         => true,
+                    'screens_updated' => $this->countOnlineScreens($target['group']),
+                    'publication_id'  => $result['publicationId'],
+                ]);
+            }
+
             // El media debe seguir existiendo en la biblioteca.
             try {
                 $media = $this->mediaFactory->getById((int) $pub['mediaId']);
@@ -317,10 +337,11 @@ class PublishController extends Base
                     p.targetName, p.displayGroupId, p.scheduleMode, p.durationSecs, p.fromDt, p.toDt,
                     p.isPriority, p.publishedAt
                FROM `displafruit_publication` p
-               INNER JOIN `media` m ON m.mediaId = p.mediaId
+               LEFT JOIN `media` m ON m.mediaId = p.mediaId
               WHERE p.status = :status
                 AND (p.toDt = 0 OR p.toDt > :now)
                 AND (p.fromDt = 0 OR p.fromDt <= :now)
+                AND (p.mediaType = \'layout\' OR m.mediaId IS NOT NULL)
               ORDER BY p.isPriority DESC, p.publishedAt DESC',
             ['status' => 'active', 'now' => $now]
         );
@@ -404,17 +425,18 @@ class PublishController extends Base
         $items = [];
         foreach ($rows as $r) {
             $exists = ((int) $r['mediaExists'] === 1);
+            $isLayout = (($r['mediaType'] ?? '') === 'layout');
             $items[] = [
                 'publicationId' => (int) $r['publicationId'],
                 'name'          => $r['name'],
                 'mediaId'       => (int) $r['mediaId'],
                 'type'          => $r['mediaType'],
-                'thumbUrl'      => $exists ? $this->thumbUrl($r['mediaType'], (int) $r['mediaId']) : null,
+                'thumbUrl'      => (!$isLayout && $exists) ? $this->thumbUrl($r['mediaType'], (int) $r['mediaId']) : null,
                 'target'        => $this->targetLabel($r),
                 'mode'          => $r['scheduleMode'],
                 'publishedAt'   => (int) $r['publishedAt'],
                 'status'        => $r['status'],
-                'canRepublish'  => $exists,
+                'canRepublish'  => $isLayout ? true : $exists,
             ];
         }
 
@@ -506,7 +528,7 @@ class PublishController extends Base
             $schedule->save();
 
             $publicationId = $this->recordPublication(
-                $media,
+                (int) $media->mediaId,
                 $mediaType,
                 $mediaName,
                 $target,
@@ -551,6 +573,150 @@ class PublishController extends Base
             'eventId'       => (int) $schedule->eventId,
             'publicationId' => $publicationId,
         ];
+    }
+
+    /**
+     * Lanzar un LAYOUT de Xibo ya existente (p. ej. el dashboard de producción, que es una
+     * página web montada en un layout) sobre el destino, y registrarlo como publicación.
+     * Análogo a doPublish() pero con un LAYOUT_EVENT y sin media. No toca el player web propio
+     * (displafruit_now_playing), que es exclusivo de contenido subido como fichero.
+     *
+     * @return array{layoutId:int, campaignId:int, eventId:int, publicationId:int}
+     */
+    private function doPublishLayout($layout, string $name, array $target, array $sched): array
+    {
+        $user = $this->getUser();
+        $schedule = null;
+
+        try {
+            $campaignId = (int) $layout->campaignId;
+
+            $customDayPart = $this->dayPartFactory->getCustomDayPart();
+
+            $schedule = $this->scheduleFactory->createEmpty();
+            $schedule->userId = $user->userId;
+            $schedule->eventTypeId = Schedule::$LAYOUT_EVENT;
+            $schedule->campaignId = $campaignId;
+            $schedule->dayPartId = $customDayPart->dayPartId;
+            $schedule->isPriority = $sched['isPriority'];
+            $schedule->displayOrder = 0;
+            // Correr en hora del CMS: evita "Fuera de plazo" por el reloj local de la TV.
+            $schedule->syncTimezone = 1;
+            $schedule->syncEvent = 0;
+            $schedule->isGeoAware = 0;
+            $schedule->maxPlaysPerHour = 0;
+            $schedule->fromDt = $sched['fromDt'];
+            $schedule->toDt = $sched['toDt'];
+
+            $schedule->assignDisplayGroup($target['group']);
+            $schedule->setDisplayNotifyService($this->displayFactory->getDisplayNotifyService());
+            $schedule->setCampaignFactory($this->campaignFactory);
+            $schedule->save();
+
+            $publicationId = $this->recordPublication(
+                0,
+                'layout',
+                $name,
+                $target,
+                $sched,
+                (int) $layout->layoutId,
+                $campaignId,
+                (int) $schedule->eventId
+            );
+        } catch (\Throwable $inner) {
+            if ($schedule !== null && !empty($schedule->eventId)) {
+                try {
+                    $schedule->delete();
+                } catch (\Throwable $cleanup) {
+                    $this->getLog()->error('DisplaFruit publishLayout: fallo al limpiar schedule huérfano: '
+                        . $cleanup->getMessage());
+                }
+            }
+            throw $inner;
+        }
+
+        return [
+            'layoutId'      => (int) $layout->layoutId,
+            'campaignId'    => $campaignId,
+            'eventId'       => (int) $schedule->eventId,
+            'publicationId' => $publicationId,
+        ];
+    }
+
+    /**
+     * Lanzar un layout de Xibo a un destino (endpoint del panel). Cubre el dashboard de
+     * producción y cualquier otro contenido ya montado como layout.
+     */
+    public function publishLayout(Request $request, Response $response): Response|ResponseInterface
+    {
+        try {
+            $params = $this->getSanitizer($request->getParams());
+
+            $layoutId = $params->getInt('layoutId');
+            if (empty($layoutId)) {
+                return $response->withJson(['success' => false, 'message' => __('Falta el layout a lanzar.')], 400);
+            }
+
+            // ACL: getById con user check (false) -> solo layouts que el usuario puede ver.
+            try {
+                $layout = $this->layoutFactory->getById($layoutId, false);
+            } catch (\Throwable $e) {
+                return $response->withJson([
+                    'success' => false,
+                    'message' => __('No tienes acceso a ese layout o ya no existe.'),
+                ], 404);
+            }
+
+            $sched = $this->parseSchedule($params);
+            $name = $params->getString('name');
+            if (empty($name)) {
+                $name = (string) $layout->layout;
+            }
+            $target = $this->resolveTarget($params);
+
+            $result = $this->doPublishLayout($layout, $name, $target, $sched);
+            $screensUpdated = $this->countOnlineScreens($target['group']);
+
+            $this->getLog()->audit('Schedule', $result['eventId'], 'DisplaFruit: publishLayout', [
+                'layoutId'       => $result['layoutId'],
+                'displayGroupId' => $target['group']->displayGroupId,
+                'targetType'     => $target['targetType'],
+                'scheduleMode'   => $sched['mode'],
+            ]);
+
+            return $response->withJson([
+                'success'         => true,
+                'screens_updated' => $screensUpdated,
+                'publication_id'  => $result['publicationId'],
+            ]);
+        } catch (\Throwable $e) {
+            $this->getLog()->error('DisplaFruit publishLayout error: ' . $e->getMessage());
+            return $response->withJson(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Lista de layouts publicados que el usuario puede lanzar (para el desplegable del panel).
+     */
+    public function layouts(Request $request, Response $response): Response|ResponseInterface
+    {
+        $items = [];
+        try {
+            $layouts = $this->layoutFactory->query(['layout'], ['excludeTemplates' => 1, 'retired' => 0]);
+            foreach ($layouts as $layout) {
+                // Solo publicados (no borradores/pendientes).
+                if ((int) $layout->publishedStatusId !== 1) {
+                    continue;
+                }
+                $items[] = [
+                    'layoutId' => (int) $layout->layoutId,
+                    'name'     => (string) $layout->layout,
+                ];
+            }
+        } catch (\Throwable $e) {
+            $this->getLog()->error('DisplaFruit layouts error: ' . $e->getMessage());
+        }
+        return $response->withJson(['layouts' => $items]);
     }
 
     /**
@@ -641,7 +807,7 @@ class PublishController extends Base
      * Insertar la fila de historial/estado y devolver su id.
      */
     private function recordPublication(
-        $media,
+        int $mediaId,
         string $mediaType,
         string $name,
         array $target,
@@ -661,7 +827,7 @@ class PublishController extends Base
                  :publishedAt, :status)',
             [
                 'userId'         => $this->getUser()->userId,
-                'mediaId'        => $media->mediaId,
+                'mediaId'        => $mediaId,
                 'mediaType'      => $mediaType,
                 'name'           => $name,
                 'targetType'     => $target['targetType'],
@@ -938,6 +1104,7 @@ class PublishController extends Base
                 'SELECT mediaId, mediaType, name, scheduleMode, durationSecs, fromDt, toDt, publishedAt
                    FROM `displafruit_publication`
                   WHERE status = :status AND targetType = :targetType
+                    AND mediaType <> \'layout\'
                     AND (toDt = 0 OR toDt > :now)
                     AND (fromDt = 0 OR fromDt <= :now)
                   ORDER BY publishedAt DESC
@@ -949,6 +1116,7 @@ class PublishController extends Base
                 'SELECT mediaId, mediaType, name, scheduleMode, durationSecs, fromDt, toDt, publishedAt
                    FROM `displafruit_publication`
                   WHERE status = :status AND targetType = :targetType AND targetName = :targetName
+                    AND mediaType <> \'layout\'
                     AND (toDt = 0 OR toDt > :now)
                     AND (fromDt = 0 OR fromDt <= :now)
                   ORDER BY publishedAt DESC

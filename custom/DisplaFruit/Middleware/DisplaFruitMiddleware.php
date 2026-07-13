@@ -99,6 +99,15 @@ class DisplaFruitMiddleware implements MiddlewareInterface
                 ->setName('displafruit.unpublish.web')
                 ->add(new FeatureAuth($container, ['library.add']));
 
+            // Lanzar un layout de Xibo (p. ej. el dashboard de producción) a un destino.
+            $app->post('/displafruit/publish-layout', [PublishController::class, 'publishLayout'])
+                ->setName('displafruit.publishLayout.web')
+                ->add(new FeatureAuth($container, ['library.add']));
+            // Lista de layouts publicados para el desplegable del panel.
+            $app->get('/displafruit/layouts', [PublishController::class, 'layouts'])
+                ->setName('displafruit.layouts.web')
+                ->add(new FeatureAuth($container, ['displafruit.operator']));
+
             // Lecturas JSON del panel (estado auto-refrescado, historial, miniaturas).
             $app->get('/displafruit/dashboard/state', [PublishController::class, 'state'])
                 ->setName('displafruit.dashboard.state')
