@@ -132,6 +132,11 @@
 (function () {
     'use strict';
     var refreshMs = 60000;
+    // Base absoluta del dashboard, inyectada por el servidor (cabecera Host). Así el panel pide
+    // sus datos al :8090 aunque Xibo lo muestre envuelto desde otro origen. Si no se inyecta
+    // (fichero abierto directo), queda vacío = mismo origen (relativo).
+    var API_BASE = '__API_BASE__';
+    if (API_BASE.slice(0, 2) === '__') { API_BASE = ''; }
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -258,7 +263,7 @@
     }
 
     function poll() {
-        fetch('/api/data', { cache: 'no-store' })
+        fetch(API_BASE + '/api/data', { cache: 'no-store' })
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 if (data.refreshSeconds) { refreshMs = data.refreshSeconds * 1000; }

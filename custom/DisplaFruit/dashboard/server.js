@@ -303,11 +303,14 @@ async function handleData(res) {
     res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store',
+        // CORS: cuando el panel se muestra envuelto por Xibo (otro origen), la petición a
+        // /api/data es cross-origin; hay que permitirla explícitamente.
+        'Access-Control-Allow-Origin': '*',
     });
     res.end(JSON.stringify(payload));
 }
 
-const indexHtml = fs.readFileSync(path.join(__dirname, 'public', 'index.html'));
+const indexHtml = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
 
 const server = http.createServer(function (req, res) {
     const url = (req.url || '/').split('?')[0];
@@ -317,8 +320,11 @@ const server = http.createServer(function (req, res) {
         res.end('ok');
         return;
     }
+    // Inyecta la URL absoluta del propio dashboard (según la cabecera Host de la petición) para que
+    // el JS pida los datos a http://host:8090/api/data aunque Xibo sirva la página desde otro origen.
+    const base = req.headers.host ? ('http://' + req.headers.host) : '';
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(indexHtml);
+    res.end(indexHtml.replace('__API_BASE__', base));
 });
 
 server.listen(PORT, function () {
